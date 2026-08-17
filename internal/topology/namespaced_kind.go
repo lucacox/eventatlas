@@ -3,8 +3,12 @@ package topology
 import "strings"
 
 func isValidNamespacedKind(value string) bool {
+	return isValidDottedIdentifier(value, 2)
+}
+
+func isValidDottedIdentifier(value string, minimumSegments int) bool {
 	segments := strings.Split(value, ".")
-	if len(segments) < 2 {
+	if len(segments) < minimumSegments {
 		return false
 	}
 
