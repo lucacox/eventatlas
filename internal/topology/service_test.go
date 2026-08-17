@@ -20,6 +20,7 @@ func TestNewService(t *testing.T) {
 		{name: "Service_OK", value: "service-1", id: "svc-1", env: "dev ", err: nil, attrs: nil},
 		{name: "Service_Name_KO", value: "", id: "svc-1", env: "dev", err: ErrNodeNameEmpty, attrs: nil},
 		{name: "Service_ID_KO", value: "service-1", id: "", env: "dev", err: ErrEmptyNodeID, attrs: nil},
+		{name: "Service_Environment_KO", value: "service-1", id: "svc-1", env: " \t", err: ErrServiceEnvironmentEmpty, attrs: nil},
 		{name: "Service_Attr_OK", value: "service-1", id: "svc-1", env: "dev", err: nil, attrs: map[string]string{
 			"attr1": "value1",
 			"attr2": "value2",
@@ -38,7 +39,7 @@ func TestNewService(t *testing.T) {
 			}
 
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			nId, _ := NewNodeID(test.id)
@@ -48,6 +49,10 @@ func TestNewService(t *testing.T) {
 
 			if s.Name() != strings.TrimSpace(test.value) {
 				t.Errorf("Service name = %s, want %s", s.Name(), strings.TrimSpace(test.value))
+			}
+
+			if s.Kind() != NodeKindService {
+				t.Errorf("Service kind = %s, want %s", s.Kind(), NodeKindService)
 			}
 
 			if s.Environment() != strings.TrimSpace(test.env) {
@@ -70,5 +75,26 @@ func TestNewService(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewServiceClonesAttributes(t *testing.T) {
+	t.Parallel()
+
+	attributes := map[string]string{"team": "orders"}
+	service, err := NewService("svc-1", "order-service", "production", attributes)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	attributes["team"] = "changed"
+	if team, _ := service.Attribute("team"); team != "orders" {
+		t.Errorf("Service team = %q, want %q", team, "orders")
+	}
+
+	returnedAttributes := service.Attributes()
+	returnedAttributes["team"] = "changed"
+	if team, _ := service.Attribute("team"); team != "orders" {
+		t.Errorf("Service team after returned map mutation = %q, want %q", team, "orders")
 	}
 }

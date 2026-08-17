@@ -13,14 +13,15 @@ func TestNewNode(t *testing.T) {
 		name  string
 		value string
 		id    string
+		kind  NodeKind
 		env   string
 		err   error
 		attrs map[string]string
 	}{
-		{name: "Node_OK", value: "Node-1", id: "svc-1", env: "dev ", err: nil, attrs: nil},
-		{name: "Node_Name_KO", value: "", id: "svc-1", env: "dev", err: ErrNodeNameEmpty, attrs: nil},
-		{name: "Node_ID_KO", value: "Node-1", id: "", env: "dev", err: ErrEmptyNodeID, attrs: nil},
-		{name: "Node_Attr_OK", value: "Node-1", id: "svc-1", env: "dev", err: nil, attrs: map[string]string{
+		{name: "Node_OK", value: "Node-1", id: "svc-1", kind: NodeKindService, env: "dev ", err: nil, attrs: nil},
+		{name: "Node_Name_KO", value: "", id: "svc-1", kind: NodeKindService, env: "dev", err: ErrNodeNameEmpty, attrs: nil},
+		{name: "Node_ID_KO", value: "Node-1", id: "", kind: NodeKindService, env: "dev", err: ErrEmptyNodeID, attrs: nil},
+		{name: "Node_Attr_OK", value: "Node-1", id: "svc-1", kind: NodeKindService, env: "dev", err: nil, attrs: map[string]string{
 			"attr1": "value1",
 			"attr2": "value2",
 		}},
@@ -28,7 +29,7 @@ func TestNewNode(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			s, err := NewNode(test.id, test.value, test.attrs)
+			s, err := NewNode(test.id, test.kind, test.value, test.attrs)
 
 			if test.err != nil {
 				if !errors.Is(err, test.err) {
@@ -48,6 +49,10 @@ func TestNewNode(t *testing.T) {
 
 			if s.Name() != strings.TrimSpace(test.value) {
 				t.Errorf("Node name = %s, want %s", s.Name(), strings.TrimSpace(test.value))
+			}
+
+			if s.Kind() != test.kind {
+				t.Errorf("Node kind = %s, want %s", s.Kind(), test.kind)
 			}
 
 			if test.attrs != nil {
@@ -70,7 +75,7 @@ func TestNewNode(t *testing.T) {
 }
 
 func TestNode_SetAttribute(t *testing.T) {
-	s, _ := NewNode("svc-1", "Node1", nil)
+	s, _ := NewNode("svc-1", NodeKindService, "Node1", nil)
 	err := s.SetAttribute("attr1", "val")
 	if err != nil {
 		t.Errorf("Received unexpected error %v", err)
@@ -90,7 +95,7 @@ func TestNode_SetAttribute(t *testing.T) {
 }
 
 func TestNode_Attribute(t *testing.T) {
-	s, _ := NewNode("svc-1", "Node1", map[string]string{"attr1": "val"})
+	s, _ := NewNode("svc-1", NodeKindService, "Node1", map[string]string{"attr1": "val"})
 	v, ok := s.Attribute("attr1")
 	if !ok {
 		t.Error("'attr1' key should be present")
@@ -102,7 +107,7 @@ func TestNode_Attribute(t *testing.T) {
 }
 
 func TestNode_DeleteAttribute(t *testing.T) {
-	s, _ := NewNode("svc-1", "Node1", map[string]string{"attr1": "val"})
+	s, _ := NewNode("svc-1", NodeKindService, "Node1", map[string]string{"attr1": "val"})
 	s.DeleteAttribute("attr1")
 	_, ok := s.Attribute("attr1")
 	if ok {
@@ -112,7 +117,7 @@ func TestNode_DeleteAttribute(t *testing.T) {
 
 func TestNode_Attributes(t *testing.T) {
 	attrs := map[string]string{"attr1": "val1", "attr2": "val2"}
-	s, _ := NewNode("svc-1", "Node1", attrs)
+	s, _ := NewNode("svc-1", NodeKindService, "Node1", attrs)
 	sAttrs := s.Attributes()
 
 	for k, v := range attrs {

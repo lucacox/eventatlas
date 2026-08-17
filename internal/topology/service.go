@@ -1,8 +1,11 @@
 package topology
 
 import (
+	"errors"
 	"strings"
 )
+
+var ErrServiceEnvironmentEmpty = errors.New("service environment cannot be blank")
 
 type Service struct {
 	Node
@@ -10,9 +13,12 @@ type Service struct {
 }
 
 func NewService(id string, name, environment string, attributes map[string]string) (*Service, error) {
-	node, err := NewNode(id, name, attributes)
+	node, err := NewNode(id, NodeKindService, name, attributes)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(environment) == "" {
+		return nil, ErrServiceEnvironmentEmpty
 	}
 	return &Service{
 		Node:        node,

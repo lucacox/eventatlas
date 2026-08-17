@@ -19,16 +19,18 @@ type AttributeNode interface {
 type TopologyNode interface {
 	ID() NodeID
 	Name() string
+	Kind() NodeKind
 	AttributeNode
 }
 
 type Node struct {
 	id         NodeID
+	kind       NodeKind
 	name       string
 	attributes map[string]string
 }
 
-func NewNode(id, name string, attributes map[string]string) (Node, error) {
+func NewNode(id string, kind NodeKind, name string, attributes map[string]string) (Node, error) {
 	nodeID, err := NewNodeID(id)
 	if err != nil {
 		return Node{}, err
@@ -44,11 +46,16 @@ func NewNode(id, name string, attributes map[string]string) (Node, error) {
 		id:         nodeID,
 		name:       strings.TrimSpace(name),
 		attributes: attr,
+		kind:       kind,
 	}, nil
 }
 
 func (n *Node) ID() NodeID {
 	return n.id
+}
+
+func (n *Node) Kind() NodeKind {
+	return n.kind
 }
 
 func (n *Node) Name() string {
