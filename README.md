@@ -25,12 +25,12 @@ support other messaging systems without adopting provider-specific concepts.
 
 ## Status
 
-EventAtlas is in its initial domain-model phase. The Go module, executable
-entrypoint, core topology entities, evidence, edges, immutable discovery
-snapshots, and provider discovery contract exist. The first NATS adapter can
-discover JetStream streams, subjects, consumers, and consumer filters. It
-normalizes `captured_by`, `has_consumer`, and `filters` relationships.
-Persistence and API endpoints are not implemented yet.
+EventAtlas has its first read-only backend vertical slice. The executable
+discovers JetStream streams, subjects, consumers, and consumer filters at
+startup, normalizes them into a vendor-neutral topology snapshot, stores the
+latest snapshot in memory, and exposes it through `GET /api/v1/topology`.
+The API publishes an OpenAPI document and interactive Swagger UI through Huma.
+Durable persistence and periodic reconciliation are not implemented yet.
 
 There is no usable release at this stage.
 
@@ -71,10 +71,14 @@ remain outside the domain model.
 │   └── eventatlas/
 │       └── main.go  # Backend entrypoint
 ├── internal/
+│   ├── api/          # Huma HTTP adapter and public response model
+│   ├── application/  # Topology refresh and query use cases
 │   ├── discovery/
-│   │   ├── nats/        # NATS and JetStream discovery adapter
-│   │   └── provider.go  # Provider discovery port
-│   └── topology/        # Vendor-neutral topology domain model
+│   │   ├── nats/     # NATS and JetStream discovery adapter
+│   │   └── provider.go
+│   ├── storage/
+│   │   └── memory/   # Volatile topology store adapter
+│   └── topology/     # Vendor-neutral topology domain model
 ├── go.mod
 ├── go.sum
 ├── LICENSE
@@ -92,9 +96,10 @@ application and adapter code that is not intended for external consumers.
 - Go 1.26.6, matching the version declared in `go.mod`;
 - Git.
 
-A running NATS server and PostgreSQL are not required for unit tests or the
-current executable. The NATS integration test requires a running Docker daemon
-and starts an isolated `nats:2.14.4-alpine` container with JetStream enabled.
+A JetStream-enabled NATS server is required to run the backend. PostgreSQL is
+not required yet. Unit tests need neither service. The integration suite
+requires a running Docker daemon and starts an isolated
+`nats:2.14.4-alpine` container with JetStream enabled.
 
 ### Run the Backend
 
@@ -105,8 +110,27 @@ go mod download
 go run ./cmd/eventatlas
 ```
 
-The command currently prints a startup message and exits without starting a
-server because the executable has not been implemented yet.
+With the defaults, EventAtlas discovers `nats://127.0.0.1:4222` and listens on
+`:8080`. The available HTTP resources are:
+
+| Resource | URL |
+| --- | --- |
+| Current topology | `http://localhost:8080/api/v1/topology` |
+| Swagger UI | `http://localhost:8080/docs` |
+| OpenAPI 3.1 JSON | `http://localhost:8080/openapi.json` |
+
+Runtime configuration is read from environment variables:
+
+| Variable | Default |
+| --- | --- |
+| `EVENTATLAS_HTTP_ADDRESS` | `:8080` |
+| `EVENTATLAS_NATS_URL` | `nats://127.0.0.1:4222` |
+| `EVENTATLAS_NATS_SOURCE_ID` | `provider:nats:default` |
+| `EVENTATLAS_NATS_BROKER_NAME` | `NATS` |
+| `EVENTATLAS_NATS_DISCOVERY_SCOPE` | `account:default` |
+| `EVENTATLAS_ENVIRONMENT` | `development` |
+| `EVENTATLAS_DISCOVERY_TIMEOUT` | `10s` |
+| `EVENTATLAS_SHUTDOWN_TIMEOUT` | `10s` |
 
 ## Development
 
@@ -119,15 +143,18 @@ go test ./...
 go build ./...
 ```
 
-Run the NATS integration test against an isolated real broker:
+Run the provider and HTTP API integration tests against an isolated real
+broker:
 
 ```bash
 make test-integration-nats
 ```
 
-The test container uses a random local port, is stopped automatically, and
-does not create a persistent volume. To target an already running broker
-instead, run the tagged test with `EVENTATLAS_NATS_URL` set explicitly.
+The tests exercise both direct provider discovery and the complete
+NATS-to-Huma JSON flow. The test container uses a random local port, is stopped
+automatically, and does not create a persistent volume. To target an already
+running broker instead, run the tagged tests with `EVENTATLAS_NATS_URL` set
+explicitly.
 
 Keep dependencies minimal and run `go mod tidy` after adding or removing
 imports.
@@ -158,13 +185,13 @@ provider SDKs or infrastructure adapters.
 
 ## Initial Delivery Plan
 
-The first backend vertical slice will:
+The initial delivery sequence is:
 
-1. implement core topology types and invariants;
-1. define the provider discovery contract;
-1. discover JetStream streams, subjects, consumers, and filters;
-1. normalize discovery into a topology snapshot;
-1. expose `GET /api/v1/topology` using an in-memory implementation;
+1. implement core topology types and invariants — complete;
+1. define the provider discovery contract — complete;
+1. discover JetStream streams, subjects, consumers, and filters — complete;
+1. normalize discovery into a topology snapshot — complete;
+1. expose `GET /api/v1/topology` using an in-memory implementation — complete;
 1. introduce PostgreSQL persistence after the flow is validated;
 1. add OpenTelemetry observations after declared topology works end to end.
 
