@@ -128,8 +128,6 @@ func isAllowedEdgeEndpointPair(source, target NodeKind, edge EdgeKind) bool {
 		return source == NodeKindDestination && target == NodeKindResource
 	case EdgeKindHasConsumer:
 		return (source == NodeKindResource || source == NodeKindDestination) && target == NodeKindConsumer
-	case EdgeKindFilters:
-		return source == NodeKindConsumer && target == NodeKindDestination
 	case EdgeKindExecutedBy:
 		return source == NodeKindConsumer && target == NodeKindService
 	case EdgeKindRoutesTo:

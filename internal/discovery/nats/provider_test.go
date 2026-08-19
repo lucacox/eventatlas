@@ -98,7 +98,7 @@ func TestProviderDiscoversStreamTopology(t *testing.T) {
 	}
 }
 
-func TestProviderDiscoversConsumersAndFilters(t *testing.T) {
+func TestProviderDiscoversConsumersAndBindingSelectors(t *testing.T) {
 	t.Parallel()
 
 	provider := newTestProvider(t, &fakeClient{streams: []Stream{
@@ -136,8 +136,8 @@ func TestProviderDiscoversConsumersAndFilters(t *testing.T) {
 
 	_, destinations, resources := collectSnapshotNodes(t, snapshot)
 	consumers := collectSnapshotConsumers(t, snapshot)
-	if len(destinations) != 4 || len(resources) != 1 || len(consumers) != 3 {
-		t.Fatalf("node counts = destinations:%d resources:%d consumers:%d, want 4/1/3", len(destinations), len(resources), len(consumers))
+	if len(destinations) != 1 || len(resources) != 1 || len(consumers) != 3 {
+		t.Fatalf("node counts = destinations:%d resources:%d consumers:%d, want 1/1/3", len(destinations), len(resources), len(consumers))
 	}
 	billing := consumers["billing"]
 	if billing == nil || billing.Durability() != topology.DurabilityDurable {
@@ -168,25 +168,36 @@ func TestProviderDiscoversConsumersAndFilters(t *testing.T) {
 		nodeNames[node.ID()] = node.Name()
 	}
 	edgeCounts := make(map[topology.EdgeKind]int)
-	filterTargets := make(map[string][]string)
+	bindingMetadata := make(map[string]map[string]string)
 	for _, edge := range snapshot.Edges() {
 		edgeCounts[edge.Kind()]++
-		if edge.Kind() == topology.EdgeKindFilters {
-			consumerName := nodeNames[edge.SourceID()]
-			filterTargets[consumerName] = append(filterTargets[consumerName], nodeNames[edge.TargetID()])
+		if edge.Kind() == topology.EdgeKindHasConsumer {
+			consumerName := nodeNames[edge.TargetID()]
+			bindingMetadata[consumerName] = edge.Evidence()[0].Metadata()
 		}
 	}
-	if edgeCounts[topology.EdgeKindCapturedBy] != 1 || edgeCounts[topology.EdgeKindHasConsumer] != 3 || edgeCounts[topology.EdgeKindFilters] != 4 {
-		t.Errorf("edge counts = captured:%d has:%d filters:%d, want 1/3/4", edgeCounts[topology.EdgeKindCapturedBy], edgeCounts[topology.EdgeKindHasConsumer], edgeCounts[topology.EdgeKindFilters])
+	if edgeCounts[topology.EdgeKindCapturedBy] != 1 || edgeCounts[topology.EdgeKindHasConsumer] != 3 {
+		t.Errorf("edge counts = captured:%d has:%d, want 1/3", edgeCounts[topology.EdgeKindCapturedBy], edgeCounts[topology.EdgeKindHasConsumer])
 	}
-	if got := filterTargets["billing"]; !slices.Equal(got, []string{"orders.>", "orders.created", "orders.updated"}) {
-		t.Errorf("billing filters = %v, want [orders.> orders.created orders.updated]", got)
+	if got := bindingMetadata["billing"][consumerFilterModeMetadataKey]; got != consumerFilterModeSubjects {
+		t.Errorf("billing filter mode = %q, want subjects", got)
 	}
-	if got := filterTargets["audit"]; !slices.Equal(got, []string{"orders.*"}) {
-		t.Errorf("audit filters = %v, want [orders.*]", got)
+	if got := bindingMetadata["billing"][consumerFilterSubjectsMetadataKey]; got != `["orders.>","orders.created","orders.updated"]` {
+		t.Errorf("billing filter subjects = %q", got)
 	}
-	if _, exists := filterTargets["catchall"]; exists {
-		t.Errorf("consumer without explicit filters has filter edges: %v", filterTargets["catchall"])
+	if got := bindingMetadata["audit"][consumerFilterSubjectsMetadataKey]; got != `["orders.*"]` {
+		t.Errorf("audit filter subjects = %q", got)
+	}
+	if got := bindingMetadata["catchall"][consumerFilterModeMetadataKey]; got != consumerFilterModeAll {
+		t.Errorf("catchall filter mode = %q, want all", got)
+	}
+	if got := bindingMetadata["catchall"][consumerFilterSubjectsMetadataKey]; got != `[]` {
+		t.Errorf("catchall filter subjects = %q, want []", got)
+	}
+	for _, filter := range []string{"orders.created", "orders.updated", "orders.*"} {
+		if destinations[filter] != nil {
+			t.Errorf("consumer selector %q was promoted to a destination node", filter)
+		}
 	}
 }
 

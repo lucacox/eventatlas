@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -113,9 +114,14 @@ func TestProviderDiscoversRealJetStream(t *testing.T) {
 			consumerDurability[consumer.Name()] = consumer.Durability()
 		}
 	}
-	for _, name := range append(append([]string{streamName, durableName, ephemeralName}, streamSubjects...), billingFilters...) {
+	for _, name := range append([]string{streamName, durableName, ephemeralName}, streamSubjects...) {
 		if nodesByName[name] == nil {
 			t.Errorf("discovered topology does not contain node %q", name)
+		}
+	}
+	for _, filter := range billingFilters {
+		if nodesByName[filter] != nil {
+			t.Errorf("consumer selector %q was promoted to a topology node", filter)
 		}
 	}
 	if consumerDurability[durableName] != topology.DurabilityDurable {
@@ -124,19 +130,35 @@ func TestProviderDiscoversRealJetStream(t *testing.T) {
 	if consumerDurability[ephemeralName] != topology.DurabilityEphemeral {
 		t.Errorf("consumer %q durability = %q, want ephemeral", ephemeralName, consumerDurability[ephemeralName])
 	}
-	if got := snapshot.Metadata()["nats.jetstream.stream_count"]; got != "1" {
-		t.Errorf("stream count metadata = %q, want 1", got)
+	if got, err := strconv.Atoi(snapshot.Metadata()["nats.jetstream.stream_count"]); err != nil || got < 1 {
+		t.Errorf("stream count metadata = %q, want at least 1", snapshot.Metadata()["nats.jetstream.stream_count"])
 	}
-	if got := snapshot.Metadata()["nats.jetstream.consumer_count"]; got != "2" {
-		t.Errorf("consumer count metadata = %q, want 2", got)
+	if got, err := strconv.Atoi(snapshot.Metadata()["nats.jetstream.consumer_count"]); err != nil || got < 2 {
+		t.Errorf("consumer count metadata = %q, want at least 2", snapshot.Metadata()["nats.jetstream.consumer_count"])
 	}
 
-	edgeCounts := make(map[topology.EdgeKind]int)
+	capturedCount := 0
+	hasConsumerCount := 0
+	bindingMetadata := make(map[string]map[string]string)
 	for _, edge := range snapshot.Edges() {
-		edgeCounts[edge.Kind()]++
+		sourceName := nodesByIDName(snapshot, edge.SourceID())
+		targetName := nodesByIDName(snapshot, edge.TargetID())
+		if edge.Kind() == topology.EdgeKindCapturedBy && targetName == streamName {
+			capturedCount++
+		}
+		if edge.Kind() == topology.EdgeKindHasConsumer && sourceName == streamName {
+			hasConsumerCount++
+			bindingMetadata[targetName] = edge.Evidence()[0].Metadata()
+		}
 	}
-	if edgeCounts[topology.EdgeKindCapturedBy] != 2 || edgeCounts[topology.EdgeKindHasConsumer] != 2 || edgeCounts[topology.EdgeKindFilters] != 3 {
-		t.Errorf("edge counts = captured:%d has:%d filters:%d, want 2/2/3", edgeCounts[topology.EdgeKindCapturedBy], edgeCounts[topology.EdgeKindHasConsumer], edgeCounts[topology.EdgeKindFilters])
+	if capturedCount != 2 || hasConsumerCount != 2 {
+		t.Errorf("test stream edge counts = captured:%d has:%d, want 2/2", capturedCount, hasConsumerCount)
+	}
+	if got := bindingMetadata[durableName][consumerFilterSubjectsMetadataKey]; got != fmt.Sprintf(`["%s","%s"]`, billingFilters[0], billingFilters[1]) {
+		t.Errorf("durable consumer filter subjects = %q", got)
+	}
+	if got := bindingMetadata[ephemeralName][consumerFilterSubjectsMetadataKey]; got != fmt.Sprintf(`["%s"]`, subjectPrefix+".shared") {
+		t.Errorf("ephemeral consumer filter subjects = %q", got)
 	}
 
 	secondSnapshot, err := provider.Discover(discoveryContext, scope)
@@ -149,6 +171,15 @@ func TestProviderDiscoversRealJetStream(t *testing.T) {
 	if snapshot.ID() == secondSnapshot.ID() {
 		t.Errorf("separate discoveries returned the same snapshot ID %q", snapshot.ID())
 	}
+}
+
+func nodesByIDName(snapshot *topology.TopologySnapshot, id topology.NodeID) string {
+	for _, node := range snapshot.Nodes() {
+		if node.ID() == id {
+			return node.Name()
+		}
+	}
+	return ""
 }
 
 func connectIntegrationNATS(t *testing.T, url string) *natsgo.Conn {

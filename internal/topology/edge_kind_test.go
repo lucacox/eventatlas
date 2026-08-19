@@ -15,7 +15,6 @@ func TestEdgeKindIsValid(t *testing.T) {
 		{name: "consumes", kind: EdgeKindConsumes, value: "consumes", valid: true},
 		{name: "captured by", kind: EdgeKindCapturedBy, value: "captured_by", valid: true},
 		{name: "has consumer", kind: EdgeKindHasConsumer, value: "has_consumer", valid: true},
-		{name: "filters", kind: EdgeKindFilters, value: "filters", valid: true},
 		{name: "executed by", kind: EdgeKindExecutedBy, value: "executed_by", valid: true},
 		{name: "routes to", kind: EdgeKindRoutesTo, value: "routes_to", valid: true},
 		{name: "belongs to", kind: EdgeKindBelongsTo, value: "belongs_to", valid: true},

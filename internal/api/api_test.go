@@ -41,8 +41,8 @@ func TestGetTopologyReturnsProviderNeutralSnapshot(t *testing.T) {
 	if body.Snapshot.ID != snapshot.ID().String() || body.Snapshot.SourceID != snapshot.SourceID().String() || body.Snapshot.Scope != snapshot.Scope().String() {
 		t.Errorf("snapshot identity = (%q, %q, %q), want (%q, %q, %q)", body.Snapshot.ID, body.Snapshot.SourceID, body.Snapshot.Scope, snapshot.ID(), snapshot.SourceID(), snapshot.Scope())
 	}
-	if len(body.Nodes) != 4 || len(body.Edges) != 3 {
-		t.Fatalf("response counts = nodes:%d edges:%d, want 4/3", len(body.Nodes), len(body.Edges))
+	if len(body.Nodes) != 4 || len(body.Edges) != 2 {
+		t.Fatalf("response counts = nodes:%d edges:%d, want 4/2", len(body.Nodes), len(body.Edges))
 	}
 	nodes := make(map[string]NodeResponse)
 	for _, node := range body.Nodes {
@@ -59,6 +59,9 @@ func TestGetTopologyReturnsProviderNeutralSnapshot(t *testing.T) {
 	}
 	if body.Edges[0].Evidence[0].Mode != "declared" || body.Edges[0].Evidence[0].SourceSystem != "nats" {
 		t.Errorf("edge evidence = %+v, want declared/nats", body.Edges[0].Evidence)
+	}
+	if got := body.Edges[1].Evidence[0].Metadata["nats.jetstream.filter_subjects"]; got != `["orders.*"]` {
+		t.Errorf("consumer binding filter subjects = %q", got)
 	}
 }
 
@@ -182,17 +185,25 @@ func apiTestSnapshot(t *testing.T) *topology.TopologySnapshot {
 	if err != nil {
 		t.Fatalf("NewEvidence() error = %v", err)
 	}
-	edges := make([]topology.Edge, 0, 3)
+	bindingEvidence, err := topology.NewEvidence(sourceID, topology.EvidenceModeDeclared, sourceSystem, capturedAt, capturedAt, map[string]string{
+		"account":                        "test",
+		"nats.jetstream.filter_mode":     "subjects",
+		"nats.jetstream.filter_subjects": `["orders.*"]`,
+	})
+	if err != nil {
+		t.Fatalf("NewEvidence(binding) error = %v", err)
+	}
+	edges := make([]topology.Edge, 0, 2)
 	for _, relation := range []struct {
-		source topology.TopologyNode
-		target topology.TopologyNode
-		kind   topology.EdgeKind
+		source   topology.TopologyNode
+		target   topology.TopologyNode
+		kind     topology.EdgeKind
+		evidence topology.Evidence
 	}{
-		{source: destination, target: resource, kind: topology.EdgeKindCapturedBy},
-		{source: resource, target: consumer, kind: topology.EdgeKindHasConsumer},
-		{source: consumer, target: destination, kind: topology.EdgeKindFilters},
+		{source: destination, target: resource, kind: topology.EdgeKindCapturedBy, evidence: evidence},
+		{source: resource, target: consumer, kind: topology.EdgeKindHasConsumer, evidence: bindingEvidence},
 	} {
-		edge, err := topology.NewEdge(relation.source, relation.target, relation.kind, []topology.Evidence{evidence})
+		edge, err := topology.NewEdge(relation.source, relation.target, relation.kind, []topology.Evidence{relation.evidence})
 		if err != nil {
 			t.Fatalf("NewEdge(%s) error = %v", relation.kind, err)
 		}

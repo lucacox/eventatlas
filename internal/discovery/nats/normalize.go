@@ -1,6 +1,8 @@
 package nats
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -9,6 +11,13 @@ import (
 	"time"
 
 	"github.com/lucacox/eventatlas/internal/topology"
+)
+
+const (
+	consumerFilterModeMetadataKey     = "nats.jetstream.filter_mode"
+	consumerFilterSubjectsMetadataKey = "nats.jetstream.filter_subjects"
+	consumerFilterModeAll             = "all"
+	consumerFilterModeSubjects        = "subjects"
 )
 
 var (
@@ -146,38 +155,32 @@ func (provider *Provider) normalize(scope topology.DiscoveryScope, capturedAt ti
 				return nil, fmt.Errorf("normalize JetStream consumer %q/%q: %w", stream.Name, nativeConsumer.Name, err)
 			}
 			nodes = append(nodes, consumer)
-			hasConsumer, err := topology.NewEdge(resource, consumer, topology.EdgeKindHasConsumer, []topology.Evidence{declaredEvidence})
-			if err != nil {
-				return nil, fmt.Errorf("normalize stream %q consumer %q edge: %w", stream.Name, nativeConsumer.Name, err)
-			}
-			edges = append(edges, hasConsumer)
 
 			for _, filter := range nativeConsumer.FilterSubjects {
 				if strings.TrimSpace(filter) == "" {
 					return nil, fmt.Errorf("%w for consumer %s/%s", ErrConsumerFilterEmpty, stream.Name, nativeConsumer.Name)
 				}
-				destination, exists := destinations[filter]
-				if !exists {
-					destination, err = topology.NewDestination(
-						identity.destinationID(filter).String(),
-						filter,
-						topology.DestinationKindSubject,
-						broker.ID(),
-						"",
-						destinationAttributes(filter),
-					)
-					if err != nil {
-						return nil, fmt.Errorf("normalize consumer filter subject %q: %w", filter, err)
-					}
-					destinations[filter] = destination
-					nodes = append(nodes, destination)
-				}
-				filters, err := topology.NewEdge(consumer, destination, topology.EdgeKindFilters, []topology.Evidence{declaredEvidence})
-				if err != nil {
-					return nil, fmt.Errorf("normalize consumer %q/%q filter %q edge: %w", stream.Name, nativeConsumer.Name, filter, err)
-				}
-				edges = append(edges, filters)
 			}
+			bindingMetadata, err := consumerBindingMetadata(nativeConsumer.FilterSubjects)
+			if err != nil {
+				return nil, fmt.Errorf("encode consumer filters for %s/%s: %w", stream.Name, nativeConsumer.Name, err)
+			}
+			bindingEvidence, err := topology.NewEvidence(
+				provider.sourceID,
+				topology.EvidenceModeDeclared,
+				provider.sourceSystem,
+				capturedAt,
+				capturedAt,
+				bindingMetadata,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("create consumer binding evidence for %s/%s: %w", stream.Name, nativeConsumer.Name, err)
+			}
+			hasConsumer, err := topology.NewEdge(resource, consumer, topology.EdgeKindHasConsumer, []topology.Evidence{bindingEvidence})
+			if err != nil {
+				return nil, fmt.Errorf("normalize stream %q consumer %q edge: %w", stream.Name, nativeConsumer.Name, err)
+			}
+			edges = append(edges, hasConsumer)
 		}
 	}
 
@@ -199,6 +202,23 @@ func (provider *Provider) normalize(scope topology.DiscoveryScope, capturedAt ti
 		Completeness: topology.SnapshotCompletenessFull,
 		Metadata:     metadata,
 	})
+}
+
+func consumerBindingMetadata(filterSubjects []string) (map[string]string, error) {
+	mode := consumerFilterModeAll
+	if len(filterSubjects) > 0 {
+		mode = consumerFilterModeSubjects
+	}
+	var encodedSubjects bytes.Buffer
+	encoder := json.NewEncoder(&encodedSubjects)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(append([]string{}, filterSubjects...)); err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		consumerFilterModeMetadataKey:     mode,
+		consumerFilterSubjectsMetadataKey: strings.TrimSpace(encodedSubjects.String()),
+	}, nil
 }
 
 func consumerAttributes(stream string, consumer Consumer) map[string]string {

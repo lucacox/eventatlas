@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -116,10 +117,13 @@ func TestTopologyAPIFromRealJetStream(t *testing.T) {
 	for _, node := range body.Nodes {
 		nodeNames[node.Name] = node
 	}
-	for _, name := range []string{"Integration NATS", streamName, subject, consumerName, filter} {
+	for _, name := range []string{"Integration NATS", streamName, subject, consumerName} {
 		if _, exists := nodeNames[name]; !exists {
 			t.Errorf("API topology does not contain node %q", name)
 		}
+	}
+	if _, exists := nodeNames[filter]; exists {
+		t.Errorf("consumer selector %q was promoted to an API topology node", filter)
 	}
 	if consumer := nodeNames[consumerName]; consumer.Durability != "durable" {
 		t.Errorf("consumer durability = %q, want durable", consumer.Durability)
@@ -131,11 +135,20 @@ func TestTopologyAPIFromRealJetStream(t *testing.T) {
 	}{
 		{source: subject, target: streamName, kind: "captured_by"},
 		{source: streamName, target: consumerName, kind: "has_consumer"},
-		{source: consumerName, target: filter, kind: "filters"},
 	} {
 		if !topologyResponseHasEdge(body, edge.source, edge.target, edge.kind) {
 			t.Errorf("API topology does not contain %s -[%s]-> %s", edge.source, edge.kind, edge.target)
 		}
+	}
+	binding := topologyResponseEdge(body, streamName, consumerName, "has_consumer")
+	if binding == nil || len(binding.Evidence) != 1 {
+		t.Fatalf("API topology consumer binding = %+v, want one evidence record", binding)
+	}
+	if got := binding.Evidence[0].Metadata["nats.jetstream.filter_mode"]; got != "subjects" {
+		t.Errorf("consumer binding filter mode = %q, want subjects", got)
+	}
+	if got := binding.Evidence[0].Metadata["nats.jetstream.filter_subjects"]; got != fmt.Sprintf(`["%s"]`, filter) {
+		t.Errorf("consumer binding filter subjects = %q", got)
 	}
 
 	if _, err := manager.CreateStream(setupContext, jetstream.StreamConfig{
@@ -212,16 +225,21 @@ func topologyResponseHasNode(response TopologyResponse, name string) bool {
 }
 
 func topologyResponseHasEdge(response TopologyResponse, sourceName, targetName, kind string) bool {
+	return topologyResponseEdge(response, sourceName, targetName, kind) != nil
+}
+
+func topologyResponseEdge(response TopologyResponse, sourceName, targetName, kind string) *EdgeResponse {
 	namesByID := make(map[string]string, len(response.Nodes))
 	for _, node := range response.Nodes {
 		namesByID[node.ID] = node.Name
 	}
-	for _, edge := range response.Edges {
+	for index := range response.Edges {
+		edge := &response.Edges[index]
 		if namesByID[edge.SourceID] == sourceName && namesByID[edge.TargetID] == targetName && edge.Kind == kind {
-			return true
+			return edge
 		}
 	}
-	return false
+	return nil
 }
 
 func connectAPIIntegrationNATS(t *testing.T, url string) *natsgo.Conn {

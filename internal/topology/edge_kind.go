@@ -8,7 +8,6 @@ const (
 	EdgeKindConsumes    EdgeKind = "consumes"
 	EdgeKindCapturedBy  EdgeKind = "captured_by"
 	EdgeKindHasConsumer EdgeKind = "has_consumer"
-	EdgeKindFilters     EdgeKind = "filters"
 	EdgeKindExecutedBy  EdgeKind = "executed_by"
 	EdgeKindRoutesTo    EdgeKind = "routes_to"
 	EdgeKindBelongsTo   EdgeKind = "belongs_to"
@@ -21,7 +20,6 @@ func (kind EdgeKind) IsValid() bool {
 		EdgeKindConsumes,
 		EdgeKindCapturedBy,
 		EdgeKindHasConsumer,
-		EdgeKindFilters,
 		EdgeKindExecutedBy,
 		EdgeKindRoutesTo,
 		EdgeKindBelongsTo:
