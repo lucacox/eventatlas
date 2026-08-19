@@ -27,8 +27,10 @@ support other messaging systems without adopting provider-specific concepts.
 
 EventAtlas is in its initial domain-model phase. The Go module, executable
 entrypoint, core topology entities, evidence, edges, immutable discovery
-snapshots, and provider discovery contract exist. Provider adapters,
-persistence, and API endpoints are not implemented yet.
+snapshots, and provider discovery contract exist. The first NATS adapter can
+discover JetStream streams, subjects, consumers, and consumer filters. It
+normalizes `captured_by`, `has_consumer`, and `filters` relationships.
+Persistence and API endpoints are not implemented yet.
 
 There is no usable release at this stage.
 
@@ -70,9 +72,11 @@ remain outside the domain model.
 │       └── main.go  # Backend entrypoint
 ├── internal/
 │   ├── discovery/
+│   │   ├── nats/        # NATS and JetStream discovery adapter
 │   │   └── provider.go  # Provider discovery port
 │   └── topology/        # Vendor-neutral topology domain model
 ├── go.mod
+├── go.sum
 ├── LICENSE
 └── README.md
 ```
@@ -88,9 +92,9 @@ application and adapter code that is not intended for external consumers.
 - Go 1.26.6, matching the version declared in `go.mod`;
 - Git.
 
-NATS, JetStream, and PostgreSQL are not required for the current empty
-bootstrap. They will become development dependencies as their adapters are
-implemented.
+A running NATS server and PostgreSQL are not required for unit tests or the
+current executable. The NATS integration test requires a running Docker daemon
+and starts an isolated `nats:2.14.4-alpine` container with JetStream enabled.
 
 ### Run the Backend
 
@@ -114,6 +118,16 @@ go vet ./...
 go test ./...
 go build ./...
 ```
+
+Run the NATS integration test against an isolated real broker:
+
+```bash
+make test-integration-nats
+```
+
+The test container uses a random local port, is stopped automatically, and
+does not create a persistent volume. To target an already running broker
+instead, run the tagged test with `EVENTATLAS_NATS_URL` set explicitly.
 
 Keep dependencies minimal and run `go mod tidy` after adding or removing
 imports.
