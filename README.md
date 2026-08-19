@@ -25,9 +25,10 @@ support other messaging systems without adopting provider-specific concepts.
 
 ## Status
 
-EventAtlas is in its initial bootstrap phase. The Go module and executable
-entrypoint exist, but discovery providers, persistence, and API endpoints are
-not implemented yet.
+EventAtlas is in its initial domain-model phase. The Go module, executable
+entrypoint, core topology entities, evidence, edges, immutable discovery
+snapshots, and provider discovery contract exist. Provider adapters,
+persistence, and API endpoints are not implemented yet.
 
 There is no usable release at this stage.
 
@@ -67,14 +68,18 @@ remain outside the domain model.
 ├── cmd/
 │   └── eventatlas/
 │       └── main.go  # Backend entrypoint
+├── internal/
+│   ├── discovery/
+│   │   └── provider.go  # Provider discovery port
+│   └── topology/        # Vendor-neutral topology domain model
 ├── go.mod
 ├── LICENSE
 └── README.md
 ```
 
-Packages will be introduced incrementally as the first vertical slice is
-implemented. The repository will favor `internal` packages for application and
-adapter code that is not intended for external consumers.
+Additional packages will be introduced incrementally as the first vertical
+slice is implemented. The repository favors `internal` packages for
+application and adapter code that is not intended for external consumers.
 
 ## Getting Started
 

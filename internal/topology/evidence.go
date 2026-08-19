@@ -97,3 +97,17 @@ func (evidence Evidence) LastSeen() time.Time {
 func (evidence Evidence) Metadata() map[string]string {
 	return maps.Clone(evidence.metadata)
 }
+
+func (evidence Evidence) isValid() bool {
+	return evidence.sourceID.String() != "" &&
+		evidence.mode.IsValid() &&
+		evidence.sourceSystem.IsValid() &&
+		!evidence.firstSeen.IsZero() &&
+		!evidence.lastSeen.IsZero() &&
+		!evidence.lastSeen.Before(evidence.firstSeen)
+}
+
+func (evidence Evidence) clone() Evidence {
+	evidence.metadata = maps.Clone(evidence.metadata)
+	return evidence
+}
