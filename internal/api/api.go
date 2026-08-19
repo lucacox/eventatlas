@@ -22,7 +22,7 @@ type TopologyReader interface {
 	Current(ctx context.Context) (*topology.TopologySnapshot, error)
 }
 
-// NewHandler builds the HTTP adapter, including OpenAPI and Swagger UI routes.
+// NewHandler builds the HTTP adapter, including OpenAPI and interactive docs.
 func NewHandler(reader TopologyReader) (http.Handler, error) {
 	if isNilInterface(reader) {
 		return nil, ErrTopologyReaderNil
@@ -30,11 +30,7 @@ func NewHandler(reader TopologyReader) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	config := huma.DefaultConfig("EventAtlas API", Version)
-	config.DocsRenderer = huma.DocsRendererSwaggerUI
-	config.DocsRendererConfig = map[string]any{
-		"displayRequestDuration": true,
-		"tryItOutEnabled":        true,
-	}
+	config.DocsRenderer = huma.DocsRendererStoplightElements
 	// Keep response bodies limited to the documented EventAtlas contract. The
 	// OpenAPI document and per-model schemas remain available on their routes.
 	config.CreateHooks = nil

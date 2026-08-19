@@ -107,7 +107,7 @@ func TestGetTopologyReturnsInternalServerErrorForNilSnapshot(t *testing.T) {
 	}
 }
 
-func TestHandlerServesSwaggerUIAndOpenAPI(t *testing.T) {
+func TestHandlerServesStoplightElementsAndOpenAPI(t *testing.T) {
 	t.Parallel()
 
 	handler, err := NewHandler(&apiFakeReader{snapshot: apiTestSnapshot(t)})
@@ -117,8 +117,8 @@ func TestHandlerServesSwaggerUIAndOpenAPI(t *testing.T) {
 
 	docs := httptest.NewRecorder()
 	handler.ServeHTTP(docs, httptest.NewRequest(http.MethodGet, "/docs", nil))
-	if docs.Code != http.StatusOK || !strings.Contains(docs.Body.String(), "SwaggerUIBundle") {
-		t.Errorf("GET /docs = %d, Swagger UI present = %t", docs.Code, strings.Contains(docs.Body.String(), "SwaggerUIBundle"))
+	if docs.Code != http.StatusOK || !strings.Contains(docs.Body.String(), "<elements-api") {
+		t.Errorf("GET /docs = %d, Stoplight Elements present = %t; body = %s", docs.Code, strings.Contains(docs.Body.String(), "<elements-api"), docs.Body.String())
 	}
 
 	spec := httptest.NewRecorder()

@@ -83,6 +83,13 @@ func run() error {
 		return fmt.Errorf("initial topology discovery: %w", err)
 	}
 	log.Printf("discovered topology snapshot %s with %d nodes and %d edges", snapshot.ID(), len(snapshot.Nodes()), len(snapshot.Edges()))
+	periodicRefresher, err := application.NewPeriodicRefresher(service, scope, application.PeriodicRefreshConfig{
+		Interval: config.refreshInterval,
+		Timeout:  config.discoveryTimeout,
+	})
+	if err != nil {
+		return fmt.Errorf("create periodic topology refresher: %w", err)
+	}
 
 	handler, err := api.NewHandler(service)
 	if err != nil {
@@ -96,13 +103,35 @@ func run() error {
 	}
 
 	serverErrors := make(chan error, 1)
+	refreshDone := make(chan struct{})
 	go func() {
-		log.Printf("EventAtlas API listening on %s (Swagger UI: /docs)", config.httpAddress)
+		defer close(refreshDone)
+		periodicRefresher.Run(ctx, func(outcome application.RefreshOutcome) {
+			if outcome.Err != nil {
+				log.Printf("periodic topology refresh failed: %v", outcome.Err)
+				return
+			}
+			if outcome.Snapshot == nil {
+				log.Printf("periodic topology refresh returned no snapshot")
+				return
+			}
+			log.Printf(
+				"refreshed topology snapshot %s with %d nodes and %d edges",
+				outcome.Snapshot.ID(),
+				len(outcome.Snapshot.Nodes()),
+				len(outcome.Snapshot.Edges()),
+			)
+		})
+	}()
+	go func() {
+		log.Printf("EventAtlas API listening on %s (API docs: /docs, refresh interval: %s)", config.httpAddress, config.refreshInterval)
 		serverErrors <- server.ListenAndServe()
 	}()
 
 	select {
 	case err := <-serverErrors:
+		stop()
+		<-refreshDone
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -112,11 +141,14 @@ func run() error {
 
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), config.shutdownTimeout)
 	defer cancelShutdown()
-	if err := server.Shutdown(shutdownContext); err != nil {
-		return fmt.Errorf("shut down HTTP API: %w", err)
+	shutdownErr := server.Shutdown(shutdownContext)
+	serverErr := <-serverErrors
+	<-refreshDone
+	if shutdownErr != nil {
+		return fmt.Errorf("shut down HTTP API: %w", shutdownErr)
 	}
-	if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("serve HTTP API: %w", err)
+	if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+		return fmt.Errorf("serve HTTP API: %w", serverErr)
 	}
 	return nil
 }

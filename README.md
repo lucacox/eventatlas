@@ -27,10 +27,11 @@ support other messaging systems without adopting provider-specific concepts.
 
 EventAtlas has its first read-only backend vertical slice. The executable
 discovers JetStream streams, subjects, consumers, and consumer filters at
-startup, normalizes them into a vendor-neutral topology snapshot, stores the
-latest snapshot in memory, and exposes it through `GET /api/v1/topology`.
-The API publishes an OpenAPI document and interactive Swagger UI through Huma.
-Durable persistence and periodic reconciliation are not implemented yet.
+startup and periodically thereafter. It normalizes them into a vendor-neutral
+topology snapshot, stores the latest successful snapshot in memory, and
+exposes it through `GET /api/v1/topology`. The API publishes an OpenAPI
+document and interactive documentation through Huma. Durable persistence is
+not implemented yet.
 
 There is no usable release at this stage.
 
@@ -110,13 +111,14 @@ go mod download
 go run ./cmd/eventatlas
 ```
 
-With the defaults, EventAtlas discovers `nats://127.0.0.1:4222` and listens on
-`:8080`. The available HTTP resources are:
+With the defaults, EventAtlas discovers `nats://127.0.0.1:4222`, refreshes the
+topology every minute, and listens on `:8080`. The available HTTP resources
+are:
 
 | Resource | URL |
 | --- | --- |
 | Current topology | `http://localhost:8080/api/v1/topology` |
-| Swagger UI | `http://localhost:8080/docs` |
+| Interactive API documentation | `http://localhost:8080/docs` |
 | OpenAPI 3.1 JSON | `http://localhost:8080/openapi.json` |
 
 Runtime configuration is read from environment variables:
@@ -130,7 +132,12 @@ Runtime configuration is read from environment variables:
 | `EVENTATLAS_NATS_DISCOVERY_SCOPE` | `account:default` |
 | `EVENTATLAS_ENVIRONMENT` | `development` |
 | `EVENTATLAS_DISCOVERY_TIMEOUT` | `10s` |
+| `EVENTATLAS_REFRESH_INTERVAL` | `1m` |
 | `EVENTATLAS_SHUTDOWN_TIMEOUT` | `10s` |
+
+Periodic attempts do not overlap. A failed refresh is logged and leaves the
+latest successful snapshot available to API clients; the next scheduled
+attempt still runs.
 
 ## Development
 
@@ -150,11 +157,12 @@ broker:
 make test-integration-nats
 ```
 
-The tests exercise both direct provider discovery and the complete
-NATS-to-Huma JSON flow. The test container uses a random local port, is stopped
-automatically, and does not create a persistent volume. To target an already
-running broker instead, run the tagged tests with `EVENTATLAS_NATS_URL` set
-explicitly.
+The tests exercise direct provider discovery and the complete NATS-to-Huma
+JSON flow, including discovery of a stream created after the initial snapshot
+without restarting the API. The test container uses a random local port, is
+stopped automatically, and does not create a persistent volume. To target an
+already running broker instead, run the tagged tests with
+`EVENTATLAS_NATS_URL` set explicitly.
 
 Keep dependencies minimal and run `go mod tidy` after adding or removing
 imports.
@@ -192,6 +200,7 @@ The initial delivery sequence is:
 1. discover JetStream streams, subjects, consumers, and filters — complete;
 1. normalize discovery into a topology snapshot — complete;
 1. expose `GET /api/v1/topology` using an in-memory implementation — complete;
+1. periodically reconcile the in-memory topology — complete;
 1. introduce PostgreSQL persistence after the flow is validated;
 1. add OpenTelemetry observations after declared topology works end to end.
 

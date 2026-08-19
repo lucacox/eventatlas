@@ -14,6 +14,7 @@ const (
 	defaultEnvironment     = "development"
 	defaultDiscoveryScope  = "account:default"
 	defaultDiscoveryWait   = 10 * time.Second
+	defaultRefreshInterval = time.Minute
 	defaultShutdownTimeout = 10 * time.Second
 )
 
@@ -25,6 +26,7 @@ type config struct {
 	environment      string
 	discoveryScope   string
 	discoveryTimeout time.Duration
+	refreshInterval  time.Duration
 	shutdownTimeout  time.Duration
 }
 
@@ -32,6 +34,10 @@ type envLookup func(string) (string, bool)
 
 func loadConfig(lookup envLookup) (config, error) {
 	discoveryTimeout, err := durationFromEnv(lookup, "EVENTATLAS_DISCOVERY_TIMEOUT", defaultDiscoveryWait)
+	if err != nil {
+		return config{}, err
+	}
+	refreshInterval, err := durationFromEnv(lookup, "EVENTATLAS_REFRESH_INTERVAL", defaultRefreshInterval)
 	if err != nil {
 		return config{}, err
 	}
@@ -47,6 +53,7 @@ func loadConfig(lookup envLookup) (config, error) {
 		environment:      stringFromEnv(lookup, "EVENTATLAS_ENVIRONMENT", defaultEnvironment),
 		discoveryScope:   stringFromEnv(lookup, "EVENTATLAS_NATS_DISCOVERY_SCOPE", defaultDiscoveryScope),
 		discoveryTimeout: discoveryTimeout,
+		refreshInterval:  refreshInterval,
 		shutdownTimeout:  shutdownTimeout,
 	}, nil
 }
