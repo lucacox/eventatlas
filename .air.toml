@@ -1,0 +1,17 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/eventatlas ./cmd/eventatlas"
+entrypoint = ["./tmp/eventatlas"]
+include_ext = ["go", "mod", "sum", "sql"]
+exclude_dir = [".git", "tmp"]
+delay = 300
+stop_on_error = true
+send_interrupt = true
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true
