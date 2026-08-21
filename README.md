@@ -223,7 +223,7 @@ The initial delivery sequence is:
 1. expose `GET /api/v1/topology` using an in-memory implementation — complete;
 1. periodically reconcile the in-memory topology — complete;
 1. introduce PostgreSQL persistence after the flow is validated — complete;
-1. add OpenTelemetry observations after declared topology works end to end.
+1. add OpenTelemetry observations after declared topology works end to end — in progress.
 
 ## Documentation
 
@@ -231,6 +231,7 @@ Cross-project architecture and decisions are maintained in
 [eventatlas-docs](https://github.com/lucacox/eventatlas-docs).
 
 - [Domain model](https://github.com/lucacox/eventatlas-docs/blob/main/architecture/domain-model.md)
+- [Observation architecture](https://github.com/lucacox/eventatlas-docs/blob/main/architecture/observations.md)
 - [Architecture decision records](https://github.com/lucacox/eventatlas-docs/tree/main/adrs)
 
 ## Related Repositories
