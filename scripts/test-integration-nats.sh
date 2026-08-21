@@ -18,4 +18,4 @@ docker run --rm --detach \
 
 EVENTATLAS_NATS_ADDRESS="$(docker port "$EVENTATLAS_NATS_CONTAINER" 4222/tcp)"
 EVENTATLAS_NATS_URL="nats://$EVENTATLAS_NATS_ADDRESS" \
-	go test -tags=integration ./internal/discovery/nats ./internal/api -count=1
+	go test -p=1 -tags=integration ./internal/discovery/nats ./internal/api -count=1

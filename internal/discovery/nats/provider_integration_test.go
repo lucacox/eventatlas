@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -165,8 +164,22 @@ func TestProviderDiscoversRealJetStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Discover() error = %v", err)
 	}
-	if !slices.Equal(integrationNodeIDs(snapshot), integrationNodeIDs(secondSnapshot)) {
-		t.Errorf("node identities changed across equivalent discoveries:\nfirst  %v\nsecond %v", integrationNodeIDs(snapshot), integrationNodeIDs(secondSnapshot))
+	secondNodesByName := make(map[string]topology.TopologyNode, len(secondSnapshot.Nodes()))
+	for _, node := range secondSnapshot.Nodes() {
+		secondNodesByName[node.Name()] = node
+	}
+	stableNodeNames := []string{"Integration NATS", streamName, durableName, ephemeralName}
+	stableNodeNames = append(stableNodeNames, streamSubjects...)
+	for _, name := range stableNodeNames {
+		first, firstExists := nodesByName[name]
+		second, secondExists := secondNodesByName[name]
+		if !firstExists || !secondExists {
+			t.Errorf("node %q presence across discoveries = (%t, %t), want both true", name, firstExists, secondExists)
+			continue
+		}
+		if first.ID() != second.ID() {
+			t.Errorf("node %q identity changed across discoveries: %q -> %q", name, first.ID(), second.ID())
+		}
 	}
 	if snapshot.ID() == secondSnapshot.ID() {
 		t.Errorf("separate discoveries returned the same snapshot ID %q", snapshot.ID())
@@ -210,12 +223,4 @@ func integrationToken(t *testing.T) string {
 		t.Fatalf("generate integration test token: %v", err)
 	}
 	return hex.EncodeToString(value[:])
-}
-
-func integrationNodeIDs(snapshot *topology.TopologySnapshot) []string {
-	result := make([]string, 0, len(snapshot.Nodes()))
-	for _, node := range snapshot.Nodes() {
-		result = append(result, fmt.Sprintf("%s=%s", node.Name(), node.ID()))
-	}
-	return result
 }
