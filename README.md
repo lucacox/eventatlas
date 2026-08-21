@@ -36,6 +36,10 @@ reconciled snapshot can be stored durably in PostgreSQL and restored after a
 restart; without a database URL, the backend uses the in-memory adapter. The
 API publishes an OpenAPI document and interactive documentation through Huma.
 
+The OpenTelemetry phase has started with the provider-neutral observation
+fact, aggregation port, in-memory adapter, and merged topology projector. OTLP
+transport, durable observation persistence, and API exposure are not wired yet.
+
 There is no usable release at this stage.
 
 ## Responsibilities
@@ -80,6 +84,7 @@ remain outside the domain model.
 │   ├── discovery/
 │   │   ├── nats/     # NATS and JetStream discovery adapter
 │   │   └── provider.go
+│   ├── observation/   # Provider-neutral runtime facts and aggregates
 │   ├── storage/
 │   │   ├── memory/   # Volatile topology store adapter
 │   │   └── postgres/ # Durable store and embedded migrations
