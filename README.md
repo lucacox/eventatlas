@@ -18,6 +18,9 @@ post_date: 2026-08-16
 
 **Discover and visualize your event-driven topology.**
 
+[![Backend CI](https://github.com/lucacox/eventatlas/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/lucacox/eventatlas/actions/workflows/ci.yml)
+[![Backend Integration](https://github.com/lucacox/eventatlas/actions/workflows/integration.yml/badge.svg?branch=development)](https://github.com/lucacox/eventatlas/actions/workflows/integration.yml)
+
 EventAtlas discovers messaging infrastructure, normalizes it into a
 vendor-neutral topology, and exposes that topology to clients through an API.
 NATS and JetStream are the first integration, but the core is designed to
