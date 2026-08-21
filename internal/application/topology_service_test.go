@@ -62,17 +62,26 @@ func TestTopologyServicePropagatesStoreFailures(t *testing.T) {
 	replaceErr := errors.New("replace failed")
 	currentErr := errors.New("load failed")
 	provider := &applicationFakeProvider{snapshot: applicationTestSnapshot(t, "snapshot:one")}
-	store := &applicationFakeStore{replaceErr: replaceErr, currentErr: currentErr}
-	service, err := NewTopologyService(provider, store)
+	replaceStore := &applicationFakeStore{replaceErr: replaceErr}
+	replaceService, err := NewTopologyService(provider, replaceStore)
 	if err != nil {
 		t.Fatalf("NewTopologyService() error = %v", err)
 	}
 	scope, _ := topology.NewDiscoveryScope("account:test")
 
-	if _, err := service.Refresh(context.Background(), scope); !errors.Is(err, replaceErr) {
+	if _, err := replaceService.Refresh(context.Background(), scope); !errors.Is(err, replaceErr) {
 		t.Errorf("Refresh() error = %v, want wrapped %v", err, replaceErr)
 	}
-	if _, err := service.Current(context.Background()); !errors.Is(err, currentErr) {
+
+	currentStore := &applicationFakeStore{currentErr: currentErr}
+	currentService, err := NewTopologyService(provider, currentStore)
+	if err != nil {
+		t.Fatalf("NewTopologyService() error = %v", err)
+	}
+	if _, err := currentService.Refresh(context.Background(), scope); !errors.Is(err, currentErr) {
+		t.Errorf("Refresh() reconciliation read error = %v, want wrapped %v", err, currentErr)
+	}
+	if _, err := currentService.Current(context.Background()); !errors.Is(err, currentErr) {
 		t.Errorf("Current() error = %v, want wrapped %v", err, currentErr)
 	}
 }

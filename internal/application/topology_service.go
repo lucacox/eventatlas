@@ -45,12 +45,24 @@ func NewTopologyService(provider discovery.Provider, store TopologyStore) (*Topo
 
 // Refresh discovers one scope and atomically replaces the current read model.
 func (service *TopologyService) Refresh(ctx context.Context, scope topology.DiscoveryScope) (*topology.TopologySnapshot, error) {
-	snapshot, err := service.provider.Discover(ctx, scope)
+	incoming, err := service.provider.Discover(ctx, scope)
 	if err != nil {
 		return nil, fmt.Errorf("discover topology: %w", err)
 	}
-	if snapshot == nil {
+	if incoming == nil {
 		return nil, ErrSnapshotNil
+	}
+
+	snapshot := incoming
+	current, err := service.store.Current(ctx)
+	if err != nil && !errors.Is(err, ErrTopologyNotFound) {
+		return nil, fmt.Errorf("load current topology for reconciliation: %w", err)
+	}
+	if current != nil {
+		snapshot, err = reconcileSnapshots(current, incoming)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile topology: %w", err)
+		}
 	}
 	if err := service.store.Replace(ctx, snapshot); err != nil {
 		return nil, fmt.Errorf("replace topology: %w", err)

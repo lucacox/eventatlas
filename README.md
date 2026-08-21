@@ -26,12 +26,12 @@ support other messaging systems without adopting provider-specific concepts.
 ## Status
 
 EventAtlas has its first read-only backend vertical slice. The executable
-discovers JetStream streams, subjects, consumers, and consumer filters at
+discovers JetStream streams, subjects, consumers, and consumer selectors at
 startup and periodically thereafter. It normalizes them into a vendor-neutral
-topology snapshot, stores the latest successful snapshot in memory, and
-exposes it through `GET /api/v1/topology`. The API publishes an OpenAPI
-document and interactive documentation through Huma. Durable persistence is
-not implemented yet.
+topology snapshot and exposes it through `GET /api/v1/topology`. The latest
+reconciled snapshot can be stored durably in PostgreSQL and restored after a
+restart; without a database URL, the backend uses the in-memory adapter. The
+API publishes an OpenAPI document and interactive documentation through Huma.
 
 There is no usable release at this stage.
 
@@ -78,7 +78,8 @@ remain outside the domain model.
 │   │   ├── nats/     # NATS and JetStream discovery adapter
 │   │   └── provider.go
 │   ├── storage/
-│   │   └── memory/   # Volatile topology store adapter
+│   │   ├── memory/   # Volatile topology store adapter
+│   │   └── postgres/ # Durable store and embedded migrations
 │   └── topology/     # Vendor-neutral topology domain model
 ├── go.mod
 ├── go.sum
@@ -97,10 +98,10 @@ application and adapter code that is not intended for external consumers.
 - Go 1.26.6, matching the version declared in `go.mod`;
 - Git.
 
-A JetStream-enabled NATS server is required to run the backend. PostgreSQL is
-not required yet. Unit tests need neither service. The integration suite
-requires a running Docker daemon and starts an isolated
-`nats:2.14.4-alpine` container with JetStream enabled.
+A JetStream-enabled NATS server is required for discovery. PostgreSQL is
+optional for local demonstrations and required for durable storage. Unit tests
+need neither service. The integration suite requires a running Docker daemon
+and starts isolated NATS and PostgreSQL containers.
 
 ### Run the Backend
 
@@ -112,8 +113,9 @@ go run ./cmd/eventatlas
 ```
 
 With the defaults, EventAtlas discovers `nats://127.0.0.1:4222`, refreshes the
-topology every minute, and listens on `:8080`. The available HTTP resources
-are:
+topology every minute, keeps the result in memory, and listens on `:8080`.
+Set `EVENTATLAS_DATABASE_URL` to enable the PostgreSQL adapter and automatic
+migrations. The available HTTP resources are:
 
 | Resource | URL |
 | --- | --- |
@@ -127,17 +129,20 @@ Runtime configuration is read from environment variables:
 | --- | --- |
 | `EVENTATLAS_HTTP_ADDRESS` | `:8080` |
 | `EVENTATLAS_NATS_URL` | `nats://127.0.0.1:4222` |
+| `EVENTATLAS_DATABASE_URL` | empty; uses in-memory storage |
 | `EVENTATLAS_NATS_SOURCE_ID` | `provider:nats:default` |
 | `EVENTATLAS_NATS_BROKER_NAME` | `NATS` |
 | `EVENTATLAS_NATS_DISCOVERY_SCOPE` | `account:default` |
 | `EVENTATLAS_ENVIRONMENT` | `development` |
 | `EVENTATLAS_DISCOVERY_TIMEOUT` | `10s` |
+| `EVENTATLAS_DATABASE_TIMEOUT` | `10s` |
 | `EVENTATLAS_REFRESH_INTERVAL` | `1m` |
 | `EVENTATLAS_SHUTDOWN_TIMEOUT` | `10s` |
 
 Periodic attempts do not overlap. A failed refresh is logged and leaves the
 latest successful snapshot available to API clients; the next scheduled
-attempt still runs.
+attempt still runs. With PostgreSQL configured, startup can serve the last
+persisted snapshot when the initial NATS discovery attempt fails.
 
 ## Development
 
@@ -155,6 +160,19 @@ broker:
 
 ```bash
 make test-integration-nats
+```
+
+Run the PostgreSQL migration, round-trip, transactional replacement, and
+persisted-startup fallback tests:
+
+```bash
+make test-integration-postgres
+```
+
+Run both integration suites:
+
+```bash
+make test-integration
 ```
 
 The tests exercise direct provider discovery and the complete NATS-to-Huma
@@ -201,7 +219,7 @@ The initial delivery sequence is:
 1. normalize discovery into a topology snapshot — complete;
 1. expose `GET /api/v1/topology` using an in-memory implementation — complete;
 1. periodically reconcile the in-memory topology — complete;
-1. introduce PostgreSQL persistence after the flow is validated;
+1. introduce PostgreSQL persistence after the flow is validated — complete;
 1. add OpenTelemetry observations after declared topology works end to end.
 
 ## Documentation

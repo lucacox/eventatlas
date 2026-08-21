@@ -14,6 +14,7 @@ const (
 	defaultEnvironment     = "development"
 	defaultDiscoveryScope  = "account:default"
 	defaultDiscoveryWait   = 10 * time.Second
+	defaultDatabaseWait    = 10 * time.Second
 	defaultRefreshInterval = time.Minute
 	defaultShutdownTimeout = 10 * time.Second
 )
@@ -21,11 +22,13 @@ const (
 type config struct {
 	httpAddress      string
 	natsURL          string
+	databaseURL      string
 	sourceID         string
 	brokerName       string
 	environment      string
 	discoveryScope   string
 	discoveryTimeout time.Duration
+	databaseTimeout  time.Duration
 	refreshInterval  time.Duration
 	shutdownTimeout  time.Duration
 }
@@ -34,6 +37,10 @@ type envLookup func(string) (string, bool)
 
 func loadConfig(lookup envLookup) (config, error) {
 	discoveryTimeout, err := durationFromEnv(lookup, "EVENTATLAS_DISCOVERY_TIMEOUT", defaultDiscoveryWait)
+	if err != nil {
+		return config{}, err
+	}
+	databaseTimeout, err := durationFromEnv(lookup, "EVENTATLAS_DATABASE_TIMEOUT", defaultDatabaseWait)
 	if err != nil {
 		return config{}, err
 	}
@@ -48,14 +55,24 @@ func loadConfig(lookup envLookup) (config, error) {
 	return config{
 		httpAddress:      stringFromEnv(lookup, "EVENTATLAS_HTTP_ADDRESS", defaultHTTPAddress),
 		natsURL:          stringFromEnv(lookup, "EVENTATLAS_NATS_URL", defaultNATSURL),
+		databaseURL:      optionalStringFromEnv(lookup, "EVENTATLAS_DATABASE_URL"),
 		sourceID:         stringFromEnv(lookup, "EVENTATLAS_NATS_SOURCE_ID", defaultSourceID),
 		brokerName:       stringFromEnv(lookup, "EVENTATLAS_NATS_BROKER_NAME", defaultBrokerName),
 		environment:      stringFromEnv(lookup, "EVENTATLAS_ENVIRONMENT", defaultEnvironment),
 		discoveryScope:   stringFromEnv(lookup, "EVENTATLAS_NATS_DISCOVERY_SCOPE", defaultDiscoveryScope),
 		discoveryTimeout: discoveryTimeout,
+		databaseTimeout:  databaseTimeout,
 		refreshInterval:  refreshInterval,
 		shutdownTimeout:  shutdownTimeout,
 	}, nil
+}
+
+func optionalStringFromEnv(lookup envLookup, name string) string {
+	value, ok := lookup(name)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func stringFromEnv(lookup envLookup, name, fallback string) string {
