@@ -190,7 +190,7 @@ type topologyViewObservationStoreStub struct {
 	activeSince time.Time
 }
 
-func (store *topologyViewObservationStoreStub) Upsert(context.Context, observation.Fact) error {
+func (store *topologyViewObservationStoreStub) UpsertBatch(context.Context, []observation.Fact) error {
 	return store.err
 }
 

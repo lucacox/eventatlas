@@ -18,6 +18,6 @@ var (
 // ObservationStore persists runtime facts independently from authoritative
 // provider snapshots.
 type ObservationStore interface {
-	Upsert(ctx context.Context, fact observation.Fact) error
+	UpsertBatch(ctx context.Context, facts []observation.Fact) error
 	ListActive(ctx context.Context, scope topology.DiscoveryScope, activeSince time.Time) ([]observation.Aggregate, error)
 }

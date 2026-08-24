@@ -37,8 +37,9 @@ restart; without a database URL, the backend uses the in-memory adapter. The
 API publishes an OpenAPI document and interactive documentation through Huma.
 
 The OpenTelemetry phase has started with the provider-neutral observation
-fact, aggregation port, in-memory adapter, and merged topology projector. OTLP
-transport, durable observation persistence, and API exposure are not wired yet.
+fact, aggregation port, in-memory and PostgreSQL adapters, and merged topology
+projector. OTLP transport, runtime wiring, and API exposure are not implemented
+yet.
 
 There is no usable release at this stage.
 

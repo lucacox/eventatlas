@@ -169,6 +169,49 @@ func TestAggregateMergesLateAndNewerFacts(t *testing.T) {
 	}
 }
 
+func TestAggregateRestoresPersistedState(t *testing.T) {
+	t.Parallel()
+
+	lastSeen := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	fact := observationTestFact(t, lastSeen, "orders.1", "orders.*", map[string]string{"delivery": "latest"})
+	aggregate, err := NewAggregateFromState(fact, lastSeen.Add(-2*time.Hour), lastSeen, 42)
+	if err != nil {
+		t.Fatalf("NewAggregateFromState() error = %v", err)
+	}
+	if got, want := aggregate.FirstSeen(), lastSeen.Add(-2*time.Hour); !got.Equal(want) {
+		t.Errorf("FirstSeen() = %v, want %v", got, want)
+	}
+	if got := aggregate.ObservationCount(); got != 42 {
+		t.Errorf("ObservationCount() = %d, want 42", got)
+	}
+	if got := aggregate.Metadata()["delivery"]; got != "latest" {
+		t.Errorf("Metadata() delivery = %q, want latest", got)
+	}
+
+	tests := []struct {
+		name      string
+		fact      Fact
+		firstSeen time.Time
+		lastSeen  time.Time
+		count     uint64
+		want      error
+	}{
+		{name: "invalid fact", fact: Fact{}, firstSeen: lastSeen, lastSeen: lastSeen, count: 1, want: ErrFactInvalid},
+		{name: "zero first seen", fact: fact, lastSeen: lastSeen, count: 1, want: ErrAggregateFirstSeenZero},
+		{name: "zero last seen", fact: fact, firstSeen: lastSeen, count: 1, want: ErrAggregateLastSeenZero},
+		{name: "invalid range", fact: fact, firstSeen: lastSeen.Add(time.Hour), lastSeen: lastSeen, count: 1, want: ErrAggregateTimeRangeInvalid},
+		{name: "zero count", fact: fact, firstSeen: lastSeen, lastSeen: lastSeen, want: ErrAggregateCountInvalid},
+		{name: "fact time mismatch", fact: fact, firstSeen: lastSeen, lastSeen: lastSeen.Add(time.Hour), count: 1, want: ErrAggregateFactTimeMismatch},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewAggregateFromState(test.fact, test.firstSeen, test.lastSeen, test.count); !errors.Is(err, test.want) {
+				t.Errorf("NewAggregateFromState() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
 func observationTestFact(
 	t *testing.T,
 	observedAt time.Time,

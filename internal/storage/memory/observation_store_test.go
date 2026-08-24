@@ -80,6 +80,34 @@ func TestObservationStoreRejectsInvalidQueriesAndFacts(t *testing.T) {
 	}
 }
 
+func TestObservationStoreUpsertsBatchesAtomically(t *testing.T) {
+	t.Parallel()
+
+	store := NewObservationStore()
+	scope, _ := topology.NewDiscoveryScope("account:test")
+	observedAt := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	first := observationMemoryTestFact(t, scope, "checkout", "orders.*", observedAt, nil)
+	second := observationMemoryTestFact(t, scope, "checkout", "orders.*", observedAt.Add(time.Minute), nil)
+	if err := store.UpsertBatch(context.Background(), []observation.Fact{first, second}); err != nil {
+		t.Fatalf("UpsertBatch() error = %v", err)
+	}
+
+	validNew := observationMemoryTestFact(t, scope, "billing", "billing.*", observedAt, nil)
+	if err := store.UpsertBatch(context.Background(), []observation.Fact{validNew, {}}); !errors.Is(err, observation.ErrFactInvalid) {
+		t.Fatalf("UpsertBatch(invalid) error = %v, want %v", err, observation.ErrFactInvalid)
+	}
+	active, err := store.ListActive(context.Background(), scope, observedAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListActive() error = %v", err)
+	}
+	if len(active) != 1 {
+		t.Fatalf("ListActive() length = %d, want only the previously committed aggregate", len(active))
+	}
+	if got := active[0].ObservationCount(); got != 2 {
+		t.Errorf("ObservationCount() = %d, want 2 facts from the successful batch", got)
+	}
+}
+
 func TestObservationStoreHonorsCancellation(t *testing.T) {
 	t.Parallel()
 

@@ -25,13 +25,21 @@ func NewObservationStore() *ObservationStoreAdapter {
 }
 
 func (store *ObservationStoreAdapter) Upsert(ctx context.Context, fact observation.Fact) error {
+	return store.UpsertBatch(ctx, []observation.Fact{fact})
+}
+
+func (store *ObservationStoreAdapter) UpsertBatch(ctx context.Context, facts []observation.Fact) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	incoming, err := observation.NewAggregate(fact)
-	if err != nil {
-		return err
+	incoming := make([]observation.Aggregate, len(facts))
+	for index, fact := range facts {
+		aggregate, err := observation.NewAggregate(fact)
+		if err != nil {
+			return err
+		}
+		incoming[index] = aggregate
 	}
 
 	store.mu.Lock()
@@ -39,13 +47,17 @@ func (store *ObservationStoreAdapter) Upsert(ctx context.Context, fact observati
 	if store.aggregates == nil {
 		store.aggregates = make(map[observation.Key]observation.Aggregate)
 	}
-	if current, exists := store.aggregates[fact.Key()]; exists {
-		incoming, err = current.Add(fact)
-		if err != nil {
-			return err
+	for index, fact := range facts {
+		aggregate := incoming[index]
+		if current, exists := store.aggregates[fact.Key()]; exists {
+			var err error
+			aggregate, err = current.Add(fact)
+			if err != nil {
+				return err
+			}
 		}
+		store.aggregates[fact.Key()] = aggregate
 	}
-	store.aggregates[fact.Key()] = incoming
 	return nil
 }
 

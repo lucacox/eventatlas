@@ -7,8 +7,13 @@ import (
 )
 
 var (
-	ErrFactInvalid          = errors.New("observation fact is invalid")
-	ErrAggregateKeyMismatch = errors.New("observation fact does not belong to aggregate")
+	ErrFactInvalid               = errors.New("observation fact is invalid")
+	ErrAggregateKeyMismatch      = errors.New("observation fact does not belong to aggregate")
+	ErrAggregateFirstSeenZero    = errors.New("observation aggregate first seen must not be zero")
+	ErrAggregateLastSeenZero     = errors.New("observation aggregate last seen must not be zero")
+	ErrAggregateTimeRangeInvalid = errors.New("observation aggregate last seen must not precede first seen")
+	ErrAggregateCountInvalid     = errors.New("observation aggregate count must be positive")
+	ErrAggregateFactTimeMismatch = errors.New("observation aggregate fact time must equal last seen")
 )
 
 // Aggregate summarizes repeated deliveries of the same observation fact.
@@ -22,14 +27,40 @@ type Aggregate struct {
 
 // NewAggregate starts an aggregate from one valid fact.
 func NewAggregate(fact Fact) (Aggregate, error) {
+	return NewAggregateFromState(fact, fact.ObservedAt(), fact.ObservedAt(), 1)
+}
+
+// NewAggregateFromState restores one persisted aggregate. The fact carries
+// the aggregate identity and the metadata associated with lastSeen.
+func NewAggregateFromState(
+	fact Fact,
+	firstSeen time.Time,
+	lastSeen time.Time,
+	observationCount uint64,
+) (Aggregate, error) {
 	if !fact.isValid() {
 		return Aggregate{}, ErrFactInvalid
 	}
+	if firstSeen.IsZero() {
+		return Aggregate{}, ErrAggregateFirstSeenZero
+	}
+	if lastSeen.IsZero() {
+		return Aggregate{}, ErrAggregateLastSeenZero
+	}
+	if lastSeen.Before(firstSeen) {
+		return Aggregate{}, ErrAggregateTimeRangeInvalid
+	}
+	if observationCount == 0 {
+		return Aggregate{}, ErrAggregateCountInvalid
+	}
+	if !fact.ObservedAt().Equal(lastSeen) {
+		return Aggregate{}, ErrAggregateFactTimeMismatch
+	}
 	return Aggregate{
 		key:              fact.Key(),
-		firstSeen:        fact.ObservedAt(),
-		lastSeen:         fact.ObservedAt(),
-		observationCount: 1,
+		firstSeen:        firstSeen.UTC(),
+		lastSeen:         lastSeen.UTC(),
+		observationCount: observationCount,
 		metadata:         fact.Metadata(),
 	}, nil
 }
