@@ -102,6 +102,80 @@ func TestConfigureOTLPServerConnectsHTTPToObservationStore(t *testing.T) {
 	}
 }
 
+func TestConfiguredTopologyViewCorrelatesOTLPPublisherWithDeclaredDestination(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Now().UTC().Add(-time.Second)
+	declared := mainTestDeclaredSnapshot(t, observedAt.Add(-time.Hour))
+	declaredStore := memory.NewTopologyStore()
+	if err := declaredStore.Replace(t.Context(), declared); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	observationStore := memory.NewObservationStore()
+	viewService, err := configureTopologyViewService(
+		declaredStore,
+		observationStore,
+		defaultObservationRetention,
+	)
+	if err != nil {
+		t.Fatalf("configureTopologyViewService() error = %v", err)
+	}
+	otlpServer, err := configureOTLPServer(config{
+		otlpHTTPAddress:     ":4318",
+		otlpSourceID:        "observation:otel:test",
+		environment:         "development",
+		otlpMaxRequestBytes: defaultOTLPMaxRequestBytes,
+		otlpMaxFutureSkew:   defaultOTLPMaxFutureSkew,
+	}, declared.Scope(), observationStore)
+	if err != nil {
+		t.Fatalf("configureOTLPServer() error = %v", err)
+	}
+	payload, err := proto.Marshal(mainTestTraceRequest(observedAt))
+	if err != nil {
+		t.Fatalf("proto.Marshal() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, observationotel.TraceExportPath, bytes.NewReader(payload))
+	request.Header.Set("Content-Type", observationotel.ProtobufContentType)
+	response := httptest.NewRecorder()
+	otlpServer.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("OTLP response status = %d, want 200; body = %x", response.Code, response.Body.Bytes())
+	}
+
+	view, err := viewService.Current(t.Context())
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	var serviceID topology.NodeID
+	var destinationID topology.NodeID
+	for _, node := range view.Nodes() {
+		switch value := node.(type) {
+		case *topology.Service:
+			if value.Name() == "checkout" {
+				serviceID = value.ID()
+			}
+		case *topology.Destination:
+			if value.Name() == "orders.*" {
+				destinationID = value.ID()
+			}
+		}
+	}
+	if serviceID.String() == "" || destinationID.String() == "" {
+		t.Fatalf("correlated nodes = service:%q destination:%q", serviceID, destinationID)
+	}
+	for _, edge := range view.Edges() {
+		if edge.SourceID() != serviceID || edge.TargetID() != destinationID || edge.Kind() != topology.EdgeKindPublishes {
+			continue
+		}
+		evidence := edge.Evidence()
+		if len(evidence) != 1 || evidence[0].Mode() != topology.EvidenceModeObserved {
+			t.Fatalf("publishes evidence = %+v, want one observed record", evidence)
+		}
+		return
+	}
+	t.Fatal("topology view does not contain checkout -[publishes]-> orders.*")
+}
+
 func TestConfigureOTLPServerValidatesEnabledConfiguration(t *testing.T) {
 	t.Parallel()
 
@@ -196,4 +270,60 @@ func mainTestStringAttribute(key, value string) *commonpb.KeyValue {
 			Value: &commonpb.AnyValue_StringValue{StringValue: value},
 		},
 	}
+}
+
+func mainTestDeclaredSnapshot(t *testing.T, capturedAt time.Time) *topology.TopologySnapshot {
+	t.Helper()
+	sourceID, _ := topology.NewSourceID("provider:nats:test")
+	scope, _ := topology.NewDiscoveryScope("account:test")
+	snapshotID, _ := topology.NewSnapshotID("snapshot:nats:test")
+	broker, err := topology.NewBroker("broker:nats:test", "NATS", "nats", "development", nil)
+	if err != nil {
+		t.Fatalf("NewBroker() error = %v", err)
+	}
+	destination, err := topology.NewDestination(
+		"destination:nats:orders",
+		"orders.*",
+		topology.DestinationKindSubject,
+		broker.ID(),
+		"orders.*",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewDestination() error = %v", err)
+	}
+	sourceSystem, _ := topology.NewSourceSystem("nats")
+	evidence, err := topology.NewEvidence(
+		sourceID,
+		topology.EvidenceModeDeclared,
+		sourceSystem,
+		capturedAt,
+		capturedAt,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewEvidence() error = %v", err)
+	}
+	belongsTo, err := topology.NewEdge(
+		destination,
+		broker,
+		topology.EdgeKindBelongsTo,
+		[]topology.Evidence{evidence},
+	)
+	if err != nil {
+		t.Fatalf("NewEdge() error = %v", err)
+	}
+	snapshot, err := topology.NewTopologySnapshot(topology.TopologySnapshotParams{
+		ID:           snapshotID,
+		SourceID:     sourceID,
+		Scope:        scope,
+		CapturedAt:   capturedAt,
+		Nodes:        []topology.TopologyNode{broker, destination},
+		Edges:        []topology.Edge{belongsTo},
+		Completeness: topology.SnapshotCompletenessFull,
+	})
+	if err != nil {
+		t.Fatalf("NewTopologySnapshot() error = %v", err)
+	}
+	return snapshot
 }

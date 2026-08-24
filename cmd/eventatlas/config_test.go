@@ -33,6 +33,9 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 			config.otlpMaxFutureSkew,
 		)
 	}
+	if config.observationRetention != defaultObservationRetention {
+		t.Errorf("default observation retention = %s, want %s", config.observationRetention, defaultObservationRetention)
+	}
 	if config.discoveryTimeout != defaultDiscoveryWait || config.databaseTimeout != defaultDatabaseWait || config.refreshInterval != defaultRefreshInterval || config.shutdownTimeout != defaultShutdownTimeout {
 		t.Errorf("default timing = (%s, %s, %s, %s)", config.discoveryTimeout, config.databaseTimeout, config.refreshInterval, config.shutdownTimeout)
 	}
@@ -53,6 +56,7 @@ func TestLoadConfigReadsAndTrimsEnvironment(t *testing.T) {
 		"EVENTATLAS_OTLP_SOURCE_ID":         " observation:otel:local ",
 		"EVENTATLAS_OTLP_MAX_REQUEST_BYTES": " 2048 ",
 		"EVENTATLAS_OTLP_MAX_FUTURE_SKEW":   " 30s ",
+		"EVENTATLAS_OBSERVATION_RETENTION":  " 2h ",
 		"EVENTATLAS_DISCOVERY_TIMEOUT":      " 3s ",
 		"EVENTATLAS_DATABASE_TIMEOUT":       " 2s ",
 		"EVENTATLAS_REFRESH_INTERVAL":       " 30s ",
@@ -83,6 +87,9 @@ func TestLoadConfigReadsAndTrimsEnvironment(t *testing.T) {
 			config.otlpMaxFutureSkew,
 		)
 	}
+	if config.observationRetention != 2*time.Hour {
+		t.Errorf("configured observation retention = %s, want 2h", config.observationRetention)
+	}
 	if config.discoveryTimeout != 3*time.Second || config.databaseTimeout != 2*time.Second || config.refreshInterval != 30*time.Second || config.shutdownTimeout != 4*time.Second {
 		t.Errorf("configured timing = (%s, %s, %s, %s)", config.discoveryTimeout, config.databaseTimeout, config.refreshInterval, config.shutdownTimeout)
 	}
@@ -108,6 +115,8 @@ func TestLoadConfigRejectsInvalidValues(t *testing.T) {
 		{name: "negative OTLP request limit", variable: "EVENTATLAS_OTLP_MAX_REQUEST_BYTES", value: "-1"},
 		{name: "malformed OTLP future skew", variable: "EVENTATLAS_OTLP_MAX_FUTURE_SKEW", value: "later"},
 		{name: "zero OTLP future skew", variable: "EVENTATLAS_OTLP_MAX_FUTURE_SKEW", value: "0s"},
+		{name: "malformed observation retention", variable: "EVENTATLAS_OBSERVATION_RETENTION", value: "later"},
+		{name: "zero observation retention", variable: "EVENTATLAS_OBSERVATION_RETENTION", value: "0s"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := loadConfig(func(name string) (string, bool) {

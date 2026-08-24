@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lucacox/eventatlas/internal/application"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 	defaultOTLPMaxRequestBytes         int64 = 64 << 20
 	defaultOTLPMaxFutureSkew                 = 5 * time.Minute
 	defaultOTLPMaxAttributeValueLength       = 1024
+	defaultObservationRetention              = application.DefaultObservationRetention
 	defaultDiscoveryWait                     = 10 * time.Second
 	defaultDatabaseWait                      = 10 * time.Second
 	defaultRefreshInterval                   = time.Minute
@@ -25,21 +28,22 @@ const (
 )
 
 type config struct {
-	httpAddress         string
-	otlpHTTPAddress     string
-	natsURL             string
-	databaseURL         string
-	sourceID            string
-	otlpSourceID        string
-	brokerName          string
-	environment         string
-	discoveryScope      string
-	otlpMaxRequestBytes int64
-	otlpMaxFutureSkew   time.Duration
-	discoveryTimeout    time.Duration
-	databaseTimeout     time.Duration
-	refreshInterval     time.Duration
-	shutdownTimeout     time.Duration
+	httpAddress          string
+	otlpHTTPAddress      string
+	natsURL              string
+	databaseURL          string
+	sourceID             string
+	otlpSourceID         string
+	brokerName           string
+	environment          string
+	discoveryScope       string
+	otlpMaxRequestBytes  int64
+	otlpMaxFutureSkew    time.Duration
+	observationRetention time.Duration
+	discoveryTimeout     time.Duration
+	databaseTimeout      time.Duration
+	refreshInterval      time.Duration
+	shutdownTimeout      time.Duration
 }
 
 type envLookup func(string) (string, bool)
@@ -61,6 +65,14 @@ func loadConfig(lookup envLookup) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	observationRetention, err := durationFromEnv(
+		lookup,
+		"EVENTATLAS_OBSERVATION_RETENTION",
+		defaultObservationRetention,
+	)
+	if err != nil {
+		return config{}, err
+	}
 	discoveryTimeout, err := durationFromEnv(lookup, "EVENTATLAS_DISCOVERY_TIMEOUT", defaultDiscoveryWait)
 	if err != nil {
 		return config{}, err
@@ -78,21 +90,22 @@ func loadConfig(lookup envLookup) (config, error) {
 		return config{}, err
 	}
 	return config{
-		httpAddress:         stringFromEnv(lookup, "EVENTATLAS_HTTP_ADDRESS", defaultHTTPAddress),
-		natsURL:             stringFromEnv(lookup, "EVENTATLAS_NATS_URL", defaultNATSURL),
-		databaseURL:         optionalStringFromEnv(lookup, "EVENTATLAS_DATABASE_URL"),
-		sourceID:            stringFromEnv(lookup, "EVENTATLAS_NATS_SOURCE_ID", defaultSourceID),
-		brokerName:          stringFromEnv(lookup, "EVENTATLAS_NATS_BROKER_NAME", defaultBrokerName),
-		environment:         stringFromEnv(lookup, "EVENTATLAS_ENVIRONMENT", defaultEnvironment),
-		discoveryScope:      stringFromEnv(lookup, "EVENTATLAS_NATS_DISCOVERY_SCOPE", defaultDiscoveryScope),
-		otlpHTTPAddress:     optionalStringFromEnv(lookup, "EVENTATLAS_OTLP_HTTP_ADDRESS"),
-		otlpSourceID:        stringFromEnv(lookup, "EVENTATLAS_OTLP_SOURCE_ID", defaultOTLPSourceID),
-		otlpMaxRequestBytes: otlpMaxRequestBytes,
-		otlpMaxFutureSkew:   otlpMaxFutureSkew,
-		discoveryTimeout:    discoveryTimeout,
-		databaseTimeout:     databaseTimeout,
-		refreshInterval:     refreshInterval,
-		shutdownTimeout:     shutdownTimeout,
+		httpAddress:          stringFromEnv(lookup, "EVENTATLAS_HTTP_ADDRESS", defaultHTTPAddress),
+		natsURL:              stringFromEnv(lookup, "EVENTATLAS_NATS_URL", defaultNATSURL),
+		databaseURL:          optionalStringFromEnv(lookup, "EVENTATLAS_DATABASE_URL"),
+		sourceID:             stringFromEnv(lookup, "EVENTATLAS_NATS_SOURCE_ID", defaultSourceID),
+		brokerName:           stringFromEnv(lookup, "EVENTATLAS_NATS_BROKER_NAME", defaultBrokerName),
+		environment:          stringFromEnv(lookup, "EVENTATLAS_ENVIRONMENT", defaultEnvironment),
+		discoveryScope:       stringFromEnv(lookup, "EVENTATLAS_NATS_DISCOVERY_SCOPE", defaultDiscoveryScope),
+		otlpHTTPAddress:      optionalStringFromEnv(lookup, "EVENTATLAS_OTLP_HTTP_ADDRESS"),
+		otlpSourceID:         stringFromEnv(lookup, "EVENTATLAS_OTLP_SOURCE_ID", defaultOTLPSourceID),
+		otlpMaxRequestBytes:  otlpMaxRequestBytes,
+		otlpMaxFutureSkew:    otlpMaxFutureSkew,
+		observationRetention: observationRetention,
+		discoveryTimeout:     discoveryTimeout,
+		databaseTimeout:      databaseTimeout,
+		refreshInterval:      refreshInterval,
+		shutdownTimeout:      shutdownTimeout,
 	}, nil
 }
 

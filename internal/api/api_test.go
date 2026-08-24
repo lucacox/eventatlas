@@ -15,11 +15,12 @@ import (
 	"github.com/lucacox/eventatlas/internal/topology"
 )
 
-func TestGetTopologyReturnsProviderNeutralSnapshot(t *testing.T) {
+func TestGetTopologyReturnsMergedView(t *testing.T) {
 	t.Parallel()
 
 	snapshot := apiTestSnapshot(t)
-	handler, err := NewHandler(&apiFakeReader{snapshot: snapshot})
+	view := apiTestView(t, snapshot)
+	handler, err := NewHandler(&apiFakeReader{view: view})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -38,8 +39,14 @@ func TestGetTopologyReturnsProviderNeutralSnapshot(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if body.Snapshot.ID != snapshot.ID().String() || body.Snapshot.SourceID != snapshot.SourceID().String() || body.Snapshot.Scope != snapshot.Scope().String() {
-		t.Errorf("snapshot identity = (%q, %q, %q), want (%q, %q, %q)", body.Snapshot.ID, body.Snapshot.SourceID, body.Snapshot.Scope, snapshot.ID(), snapshot.SourceID(), snapshot.Scope())
+	if !body.View.GeneratedAt.Equal(view.GeneratedAt()) || body.View.Scope != view.Scope().String() {
+		t.Errorf("view identity = (%v, %q), want (%v, %q)", body.View.GeneratedAt, body.View.Scope, view.GeneratedAt(), view.Scope())
+	}
+	if len(body.View.Sources) != 1 || body.View.Sources[0].SourceID != snapshot.SourceID().String() || body.View.Sources[0].Mode != "declared" {
+		t.Errorf("view sources = %+v, want declared %q", body.View.Sources, snapshot.SourceID())
+	}
+	if body.View.Diagnostics.UnresolvedObservations != 2 || body.View.Diagnostics.AmbiguousObservations != 1 {
+		t.Errorf("view diagnostics = %+v, want unresolved 2 and ambiguous 1", body.View.Diagnostics)
 	}
 	if len(body.Nodes) != 4 || len(body.Edges) != 2 {
 		t.Fatalf("response counts = nodes:%d edges:%d, want 4/2", len(body.Nodes), len(body.Edges))
@@ -63,6 +70,81 @@ func TestGetTopologyReturnsProviderNeutralSnapshot(t *testing.T) {
 	if got := body.Edges[1].Evidence[0].Metadata["nats.jetstream.filter_subjects"]; got != `["orders.*"]` {
 		t.Errorf("consumer binding filter subjects = %q", got)
 	}
+}
+
+func TestGetTopologyExposesObservedPublisherEvidence(t *testing.T) {
+	t.Parallel()
+
+	snapshot := apiTestSnapshot(t)
+	service, err := topology.NewService("service:checkout", "checkout", "test", map[string]string{"service.namespace": "commerce"})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	var destination *topology.Destination
+	for _, node := range snapshot.Nodes() {
+		if value, ok := node.(*topology.Destination); ok {
+			destination = value
+			break
+		}
+	}
+	if destination == nil {
+		t.Fatal("test snapshot has no destination")
+	}
+	observedSourceID, _ := topology.NewSourceID("observation:otel:test")
+	observedSystem, _ := topology.NewSourceSystem("opentelemetry")
+	observedAt := snapshot.CapturedAt().Add(time.Minute)
+	observedEvidence, err := topology.NewEvidence(
+		observedSourceID,
+		topology.EvidenceModeObserved,
+		observedSystem,
+		observedAt,
+		observedAt,
+		map[string]string{"eventatlas.observation_count_approximate": "1"},
+	)
+	if err != nil {
+		t.Fatalf("NewEvidence() error = %v", err)
+	}
+	publishes, err := topology.NewEdge(service, destination, topology.EdgeKindPublishes, []topology.Evidence{observedEvidence})
+	if err != nil {
+		t.Fatalf("NewEdge() error = %v", err)
+	}
+	declaredSource, _ := topology.NewTopologyViewSource(snapshot.SourceID(), topology.EvidenceModeDeclared, snapshot.CapturedAt())
+	observedSource, _ := topology.NewTopologyViewSource(observedSourceID, topology.EvidenceModeObserved, observedAt)
+	view, err := topology.NewTopologyView(topology.TopologyViewParams{
+		GeneratedAt: observedAt.Add(time.Second),
+		Scope:       snapshot.Scope(),
+		Sources:     []topology.TopologyViewSource{declaredSource, observedSource},
+		Nodes:       append(snapshot.Nodes(), service),
+		Edges:       append(snapshot.Edges(), publishes),
+	})
+	if err != nil {
+		t.Fatalf("NewTopologyView() error = %v", err)
+	}
+	handler, err := NewHandler(&apiFakeReader{view: view})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/topology", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/topology status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	var body TopologyResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.View.Sources) != 2 || body.View.Sources[1].Mode != "observed" {
+		t.Errorf("view sources = %+v, want declared and observed", body.View.Sources)
+	}
+	for _, edge := range body.Edges {
+		if edge.Kind == "publishes" && edge.SourceID == service.ID().String() && edge.TargetID == destination.ID().String() {
+			if len(edge.Evidence) != 1 || edge.Evidence[0].Mode != "observed" || edge.Evidence[0].SourceSystem != "opentelemetry" {
+				t.Fatalf("publishes evidence = %+v, want observed/opentelemetry", edge.Evidence)
+			}
+			return
+		}
+	}
+	t.Fatal("response does not contain observed checkout publishes edge")
 }
 
 func TestGetTopologyReturnsNotFoundBeforeFirstRefresh(t *testing.T) {
@@ -96,7 +178,7 @@ func TestGetTopologyReturnsInternalServerErrorForUnexpectedFailure(t *testing.T)
 	}
 }
 
-func TestGetTopologyReturnsInternalServerErrorForNilSnapshot(t *testing.T) {
+func TestGetTopologyReturnsInternalServerErrorForNilView(t *testing.T) {
 	t.Parallel()
 
 	handler, err := NewHandler(&apiFakeReader{})
@@ -113,7 +195,7 @@ func TestGetTopologyReturnsInternalServerErrorForNilSnapshot(t *testing.T) {
 func TestHandlerServesStoplightElementsAndOpenAPI(t *testing.T) {
 	t.Parallel()
 
-	handler, err := NewHandler(&apiFakeReader{snapshot: apiTestSnapshot(t)})
+	handler, err := NewHandler(&apiFakeReader{view: apiTestView(t, apiTestSnapshot(t))})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -151,12 +233,33 @@ func TestNewHandlerRejectsNilReader(t *testing.T) {
 }
 
 type apiFakeReader struct {
-	snapshot *topology.TopologySnapshot
-	err      error
+	view *topology.TopologyView
+	err  error
 }
 
-func (reader *apiFakeReader) Current(context.Context) (*topology.TopologySnapshot, error) {
-	return reader.snapshot, reader.err
+func (reader *apiFakeReader) Current(context.Context) (*topology.TopologyView, error) {
+	return reader.view, reader.err
+}
+
+func apiTestView(t *testing.T, snapshot *topology.TopologySnapshot) *topology.TopologyView {
+	t.Helper()
+	generatedAt := snapshot.CapturedAt().Add(time.Minute)
+	source, err := topology.NewTopologyViewSource(snapshot.SourceID(), topology.EvidenceModeDeclared, snapshot.CapturedAt())
+	if err != nil {
+		t.Fatalf("NewTopologyViewSource() error = %v", err)
+	}
+	view, err := topology.NewTopologyView(topology.TopologyViewParams{
+		GeneratedAt: generatedAt,
+		Scope:       snapshot.Scope(),
+		Sources:     []topology.TopologyViewSource{source},
+		Nodes:       snapshot.Nodes(),
+		Edges:       snapshot.Edges(),
+		Diagnostics: topology.NewTopologyViewDiagnostics(2, 1),
+	})
+	if err != nil {
+		t.Fatalf("NewTopologyView() error = %v", err)
+	}
+	return view
 }
 
 func apiTestSnapshot(t *testing.T) *topology.TopologySnapshot {

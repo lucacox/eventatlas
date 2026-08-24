@@ -130,7 +130,7 @@ available HTTP resources are:
 
 | Resource | URL |
 | --- | --- |
-| Current topology | `http://localhost:8080/api/v1/topology` |
+| Current merged topology view | `http://localhost:8080/api/v1/topology` |
 | Interactive API documentation | `http://localhost:8080/docs` |
 | OpenAPI 3.1 JSON | `http://localhost:8080/openapi.json` |
 | OTLP/HTTP traces, when enabled | `http://localhost:4318/v1/traces` |
@@ -150,6 +150,7 @@ Runtime configuration is read from environment variables:
 | `EVENTATLAS_OTLP_SOURCE_ID` | `observation:otel:default` |
 | `EVENTATLAS_OTLP_MAX_REQUEST_BYTES` | `67108864` (64 MiB) |
 | `EVENTATLAS_OTLP_MAX_FUTURE_SKEW` | `5m` |
+| `EVENTATLAS_OBSERVATION_RETENTION` | `24h` |
 | `EVENTATLAS_DISCOVERY_TIMEOUT` | `10s` |
 | `EVENTATLAS_DATABASE_TIMEOUT` | `10s` |
 | `EVENTATLAS_REFRESH_INTERVAL` | `1m` |
@@ -165,6 +166,11 @@ OTLP/HTTP listener that accepts binary Protobuf trace requests, with optional
 gzip compression, on `POST /v1/traces`. The first observation slice recognizes
 NATS messaging `send` spans. The configured byte limit applies to both the
 on-wire request and its decompressed representation.
+
+The topology API projects the latest declared snapshot together with active
+observations on every read. An observation remains active for
+`EVENTATLAS_OBSERVATION_RETENTION`; expiry removes only its observed evidence
+from the view and never deletes provider-declared topology.
 
 ## Development
 

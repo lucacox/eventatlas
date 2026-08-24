@@ -94,6 +94,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create topology service: %w", err)
 	}
+	viewService, err := configureTopologyViewService(service, observationStore, config.observationRetention)
+	if err != nil {
+		return err
+	}
 	snapshot, err := loadInitialTopology(ctx, service, scope, config)
 	if err != nil {
 		return err
@@ -107,7 +111,7 @@ func run() error {
 		return fmt.Errorf("create periodic topology refresher: %w", err)
 	}
 
-	handler, err := api.NewHandler(service)
+	handler, err := api.NewHandler(viewService)
 	if err != nil {
 		return fmt.Errorf("create HTTP API: %w", err)
 	}

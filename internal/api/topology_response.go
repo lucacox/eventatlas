@@ -12,20 +12,27 @@ type getTopologyOutput struct {
 
 // TopologyResponse is the provider-neutral representation exposed to clients.
 type TopologyResponse struct {
-	Snapshot SnapshotResponse `json:"snapshot"`
-	Nodes    []NodeResponse   `json:"nodes"`
-	Edges    []EdgeResponse   `json:"edges"`
+	View  ViewResponse   `json:"view"`
+	Nodes []NodeResponse `json:"nodes"`
+	Edges []EdgeResponse `json:"edges"`
 }
 
-type SnapshotResponse struct {
-	ID            string            `json:"id"`
-	SourceID      string            `json:"sourceId"`
-	Scope         string            `json:"scope"`
-	CapturedAt    time.Time         `json:"capturedAt"`
-	Completeness  string            `json:"completeness"`
-	PartialErrors []string          `json:"partialErrors"`
-	Cursor        string            `json:"cursor,omitempty"`
-	Metadata      map[string]string `json:"metadata"`
+type ViewResponse struct {
+	GeneratedAt time.Time               `json:"generatedAt"`
+	Scope       string                  `json:"scope"`
+	Sources     []ViewSourceResponse    `json:"sources"`
+	Diagnostics ViewDiagnosticsResponse `json:"diagnostics"`
+}
+
+type ViewSourceResponse struct {
+	SourceID string    `json:"sourceId"`
+	Mode     string    `json:"mode"`
+	LatestAt time.Time `json:"latestAt"`
+}
+
+type ViewDiagnosticsResponse struct {
+	UnresolvedObservations uint64 `json:"unresolvedObservations"`
+	AmbiguousObservations  uint64 `json:"ambiguousObservations"`
 }
 
 type NodeResponse struct {
@@ -59,26 +66,34 @@ type EvidenceResponse struct {
 	Metadata     map[string]string `json:"metadata"`
 }
 
-func newTopologyResponse(snapshot *topology.TopologySnapshot) TopologyResponse {
+func newTopologyResponse(view *topology.TopologyView) TopologyResponse {
+	sources := view.Sources()
+	diagnostics := view.Diagnostics()
 	response := TopologyResponse{
-		Snapshot: SnapshotResponse{
-			ID:            snapshot.ID().String(),
-			SourceID:      snapshot.SourceID().String(),
-			Scope:         snapshot.Scope().String(),
-			CapturedAt:    snapshot.CapturedAt(),
-			Completeness:  string(snapshot.Completeness()),
-			PartialErrors: snapshot.PartialErrors(),
-			Cursor:        snapshot.Cursor(),
-			Metadata:      snapshot.Metadata(),
+		View: ViewResponse{
+			GeneratedAt: view.GeneratedAt(),
+			Scope:       view.Scope().String(),
+			Sources:     make([]ViewSourceResponse, 0, len(sources)),
+			Diagnostics: ViewDiagnosticsResponse{
+				UnresolvedObservations: diagnostics.UnresolvedObservations(),
+				AmbiguousObservations:  diagnostics.AmbiguousObservations(),
+			},
 		},
-		Nodes: make([]NodeResponse, 0, len(snapshot.Nodes())),
-		Edges: make([]EdgeResponse, 0, len(snapshot.Edges())),
+		Nodes: make([]NodeResponse, 0, len(view.Nodes())),
+		Edges: make([]EdgeResponse, 0, len(view.Edges())),
 	}
 
-	for _, node := range snapshot.Nodes() {
+	for _, source := range sources {
+		response.View.Sources = append(response.View.Sources, ViewSourceResponse{
+			SourceID: source.SourceID().String(),
+			Mode:     string(source.Mode()),
+			LatestAt: source.LatestAt(),
+		})
+	}
+	for _, node := range view.Nodes() {
 		response.Nodes = append(response.Nodes, newNodeResponse(node))
 	}
-	for _, edge := range snapshot.Edges() {
+	for _, edge := range view.Edges() {
 		response.Edges = append(response.Edges, newEdgeResponse(edge))
 	}
 	return response

@@ -19,7 +19,7 @@ const Version = "0.1.0"
 var ErrTopologyReaderNil = errors.New("topology reader cannot be nil")
 
 type TopologyReader interface {
-	Current(ctx context.Context) (*topology.TopologySnapshot, error)
+	Current(ctx context.Context) (*topology.TopologyView, error)
 }
 
 // NewHandler builds the HTTP adapter, including OpenAPI and interactive docs.
@@ -41,21 +41,21 @@ func NewHandler(reader TopologyReader) (http.Handler, error) {
 		Method:      http.MethodGet,
 		Path:        "/api/v1/topology",
 		Summary:     "Get the current event-driven topology",
-		Description: "Returns the latest successfully discovered topology snapshot.",
+		Description: "Returns a merged topology view built from declared provider state and active runtime observations.",
 		Tags:        []string{"Topology"},
 		Errors:      []int{http.StatusNotFound},
 	}, func(ctx context.Context, _ *struct{}) (*getTopologyOutput, error) {
-		snapshot, err := reader.Current(ctx)
+		view, err := reader.Current(ctx)
 		if errors.Is(err, application.ErrTopologyNotFound) {
 			return nil, huma.Error404NotFound("topology has not been discovered yet")
 		}
 		if err != nil {
 			return nil, huma.Error500InternalServerError("could not load topology")
 		}
-		if snapshot == nil {
+		if view == nil {
 			return nil, huma.Error500InternalServerError("could not load topology")
 		}
-		return &getTopologyOutput{Body: newTopologyResponse(snapshot)}, nil
+		return &getTopologyOutput{Body: newTopologyResponse(view)}, nil
 	})
 
 	return mux, nil

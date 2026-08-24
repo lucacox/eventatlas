@@ -20,6 +20,7 @@ import (
 
 	"github.com/lucacox/eventatlas/internal/application"
 	natsdiscovery "github.com/lucacox/eventatlas/internal/discovery/nats"
+	"github.com/lucacox/eventatlas/internal/observation"
 	"github.com/lucacox/eventatlas/internal/storage/memory"
 	"github.com/lucacox/eventatlas/internal/topology"
 )
@@ -96,8 +97,38 @@ func TestTopologyAPIFromRealJetStream(t *testing.T) {
 	if _, err := service.Refresh(discoveryContext, scope); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
+	observationStore := memory.NewObservationStore()
+	observationSource, _ := topology.NewSourceID("observation:otel:api-integration")
+	serviceIdentity, _ := observation.NewServiceIdentity("test", "commerce", "checkout-api")
+	destinationHint, _ := observation.NewDestinationHint("nats", filter, subject)
+	observedAt := time.Now().UTC()
+	fact, err := observation.NewFact(observation.FactParams{
+		SourceID:         observationSource,
+		Scope:            scope,
+		ObservedAt:       observedAt,
+		RelationshipKind: topology.EdgeKindPublishes,
+		Service:          serviceIdentity,
+		Destination:      destinationHint,
+	})
+	if err != nil {
+		t.Fatalf("NewFact() error = %v", err)
+	}
+	if err := observationStore.UpsertBatch(t.Context(), []observation.Fact{fact}); err != nil {
+		t.Fatalf("UpsertBatch() error = %v", err)
+	}
+	projector, err := application.NewTopologyViewProjector(
+		observationStore,
+		application.TopologyViewProjectorConfig{Retention: application.DefaultObservationRetention},
+	)
+	if err != nil {
+		t.Fatalf("NewTopologyViewProjector() error = %v", err)
+	}
+	viewService, err := application.NewTopologyViewService(service, projector)
+	if err != nil {
+		t.Fatalf("NewTopologyViewService() error = %v", err)
+	}
 
-	handler, err := NewHandler(service)
+	handler, err := NewHandler(viewService)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -110,14 +141,23 @@ func TestTopologyAPIFromRealJetStream(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode topology response: %v", err)
 	}
-	if body.Snapshot.SourceID != sourceID.String() || body.Snapshot.Scope != scope.String() {
-		t.Errorf("API snapshot source/scope = (%q, %q), want (%q, %q)", body.Snapshot.SourceID, body.Snapshot.Scope, sourceID, scope)
+	if body.View.Scope != scope.String() || len(body.View.Sources) != 2 ||
+		body.View.Sources[0].SourceID != sourceID.String() || body.View.Sources[0].Mode != "declared" ||
+		body.View.Sources[1].SourceID != observationSource.String() || body.View.Sources[1].Mode != "observed" {
+		t.Errorf(
+			"API view scope/sources = (%q, %+v), want (%q, declared %q and observed %q)",
+			body.View.Scope,
+			body.View.Sources,
+			scope,
+			sourceID,
+			observationSource,
+		)
 	}
 	nodeNames := make(map[string]NodeResponse)
 	for _, node := range body.Nodes {
 		nodeNames[node.Name] = node
 	}
-	for _, name := range []string{"Integration NATS", streamName, subject, consumerName} {
+	for _, name := range []string{"Integration NATS", streamName, subject, consumerName, "checkout-api"} {
 		if _, exists := nodeNames[name]; !exists {
 			t.Errorf("API topology does not contain node %q", name)
 		}
@@ -150,6 +190,13 @@ func TestTopologyAPIFromRealJetStream(t *testing.T) {
 	if got := binding.Evidence[0].Metadata["nats.jetstream.filter_subjects"]; got != fmt.Sprintf(`["%s"]`, filter) {
 		t.Errorf("consumer binding filter subjects = %q", got)
 	}
+	publishing := topologyResponseEdge(body, "checkout-api", subject, "publishes")
+	if publishing == nil || len(publishing.Evidence) != 1 {
+		t.Fatalf("API observed publishing edge = %+v, want one evidence record", publishing)
+	}
+	if evidence := publishing.Evidence[0]; evidence.SourceID != observationSource.String() || evidence.Mode != "observed" || evidence.SourceSystem != "opentelemetry" {
+		t.Errorf("publishing evidence = %+v, want observed OpenTelemetry source %q", evidence, observationSource)
+	}
 
 	if _, err := manager.CreateStream(setupContext, jetstream.StreamConfig{
 		Name:     addedStreamName,
@@ -181,15 +228,13 @@ func TestTopologyAPIFromRealJetStream(t *testing.T) {
 		}
 	}()
 
-	initialSnapshotID := body.Snapshot.ID
 	updated := waitForTopologyResponse(t, handler, 5*time.Second, func(current TopologyResponse) bool {
-		return current.Snapshot.ID != initialSnapshotID &&
-			topologyResponseHasNode(current, addedStreamName) &&
+		return topologyResponseHasNode(current, addedStreamName) &&
 			topologyResponseHasNode(current, addedSubject) &&
 			topologyResponseHasEdge(current, addedSubject, addedStreamName, "captured_by")
 	})
-	if updated.Snapshot.ID == initialSnapshotID {
-		t.Errorf("periodic refresh kept snapshot ID %q", initialSnapshotID)
+	if !topologyResponseHasNode(updated, addedStreamName) {
+		t.Errorf("periodic refresh did not expose stream %q", addedStreamName)
 	}
 }
 
@@ -211,7 +256,7 @@ func waitForTopologyResponse(t *testing.T, handler http.Handler, timeout time.Du
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("topology did not satisfy refresh condition within %s; latest snapshot = %s", timeout, latest.Snapshot.ID)
+	t.Fatalf("topology did not satisfy refresh condition within %s; latest view generated at %s", timeout, latest.View.GeneratedAt)
 	return TopologyResponse{}
 }
 
