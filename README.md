@@ -122,15 +122,18 @@ go run ./cmd/eventatlas
 ```
 
 With the defaults, EventAtlas discovers `nats://127.0.0.1:4222`, refreshes the
-topology every minute, keeps the result in memory, and listens on `:8080`.
-Set `EVENTATLAS_DATABASE_URL` to enable the PostgreSQL adapter and automatic
-migrations. The available HTTP resources are:
+topology every minute, keeps declared topology and runtime observations in
+memory, and listens on `:8080`. OTLP ingestion remains disabled until an OTLP
+listener address is configured. Set `EVENTATLAS_DATABASE_URL` to use one
+PostgreSQL pool for both stores and run their automatic migrations. The
+available HTTP resources are:
 
 | Resource | URL |
 | --- | --- |
 | Current topology | `http://localhost:8080/api/v1/topology` |
 | Interactive API documentation | `http://localhost:8080/docs` |
 | OpenAPI 3.1 JSON | `http://localhost:8080/openapi.json` |
+| OTLP/HTTP traces, when enabled | `http://localhost:4318/v1/traces` |
 
 Runtime configuration is read from environment variables:
 
@@ -143,6 +146,10 @@ Runtime configuration is read from environment variables:
 | `EVENTATLAS_NATS_BROKER_NAME` | `NATS` |
 | `EVENTATLAS_NATS_DISCOVERY_SCOPE` | `account:default` |
 | `EVENTATLAS_ENVIRONMENT` | `development` |
+| `EVENTATLAS_OTLP_HTTP_ADDRESS` | empty; OTLP ingestion disabled |
+| `EVENTATLAS_OTLP_SOURCE_ID` | `observation:otel:default` |
+| `EVENTATLAS_OTLP_MAX_REQUEST_BYTES` | `67108864` (64 MiB) |
+| `EVENTATLAS_OTLP_MAX_FUTURE_SKEW` | `5m` |
 | `EVENTATLAS_DISCOVERY_TIMEOUT` | `10s` |
 | `EVENTATLAS_DATABASE_TIMEOUT` | `10s` |
 | `EVENTATLAS_REFRESH_INTERVAL` | `1m` |
@@ -152,6 +159,12 @@ Periodic attempts do not overlap. A failed refresh is logged and leaves the
 latest successful snapshot available to API clients; the next scheduled
 attempt still runs. With PostgreSQL configured, startup can serve the last
 persisted snapshot when the initial NATS discovery attempt fails.
+
+When `EVENTATLAS_OTLP_HTTP_ADDRESS` is set, EventAtlas starts a separate
+OTLP/HTTP listener that accepts binary Protobuf trace requests, with optional
+gzip compression, on `POST /v1/traces`. The first observation slice recognizes
+NATS messaging `send` spans. The configured byte limit applies to both the
+on-wire request and its decompressed representation.
 
 ## Development
 

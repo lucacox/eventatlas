@@ -11,15 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/lucacox/eventatlas/internal/api"
 	"github.com/lucacox/eventatlas/internal/application"
 	natsdiscovery "github.com/lucacox/eventatlas/internal/discovery/nats"
-	"github.com/lucacox/eventatlas/internal/storage/memory"
-	postgresstore "github.com/lucacox/eventatlas/internal/storage/postgres"
+	observationotel "github.com/lucacox/eventatlas/internal/observation/otel"
 	"github.com/lucacox/eventatlas/internal/topology"
 )
 
@@ -45,11 +43,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure discovery scope: %w", err)
 	}
-	store, closeStore, err := configureTopologyStore(ctx, config, sourceID, scope)
+	topologyStore, observationStore, closeStores, err := configureStores(ctx, config, sourceID, scope)
 	if err != nil {
 		return err
 	}
-	defer closeStore()
+	defer closeStores()
+	otlpServer, err := configureOTLPServer(config, scope, observationStore)
+	if err != nil {
+		return err
+	}
 
 	connection, err := natsgo.Connect(
 		config.natsURL,
@@ -88,7 +90,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure NATS provider: %w", err)
 	}
-	service, err := application.NewTopologyService(provider, store)
+	service, err := application.NewTopologyService(provider, topologyStore)
 	if err != nil {
 		return fmt.Errorf("create topology service: %w", err)
 	}
@@ -109,14 +111,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create HTTP API: %w", err)
 	}
-	server := &http.Server{
+	apiServer := &http.Server{
 		Addr:              config.httpAddress,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
-	serverErrors := make(chan error, 1)
 	refreshDone := make(chan struct{})
 	go func() {
 		defer close(refreshDone)
@@ -137,66 +138,18 @@ func run() error {
 			)
 		})
 	}()
-	go func() {
-		log.Printf("EventAtlas API listening on %s (API docs: /docs, refresh interval: %s)", config.httpAddress, config.refreshInterval)
-		serverErrors <- server.ListenAndServe()
-	}()
-
-	select {
-	case err := <-serverErrors:
-		stop()
-		<-refreshDone
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return fmt.Errorf("serve HTTP API: %w", err)
-	case <-ctx.Done():
+	servers := []namedHTTPServer{{name: "EventAtlas API", server: apiServer}}
+	log.Printf("EventAtlas API configured on %s (API docs: /docs, refresh interval: %s)", config.httpAddress, config.refreshInterval)
+	if otlpServer != nil {
+		servers = append(servers, namedHTTPServer{name: "EventAtlas OTLP/HTTP receiver", server: otlpServer})
+		log.Printf("EventAtlas OTLP/HTTP receiver configured on %s%s", config.otlpHTTPAddress, observationotel.TraceExportPath)
+	} else {
+		log.Printf("EventAtlas OTLP/HTTP receiver disabled")
 	}
 
-	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), config.shutdownTimeout)
-	defer cancelShutdown()
-	shutdownErr := server.Shutdown(shutdownContext)
-	serverErr := <-serverErrors
+	serverErr := runHTTPServers(ctx, stop, servers, config.shutdownTimeout)
 	<-refreshDone
-	if shutdownErr != nil {
-		return fmt.Errorf("shut down HTTP API: %w", shutdownErr)
-	}
-	if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
-		return fmt.Errorf("serve HTTP API: %w", serverErr)
-	}
-	return nil
-}
-
-func configureTopologyStore(
-	ctx context.Context,
-	config config,
-	sourceID topology.SourceID,
-	scope topology.DiscoveryScope,
-) (application.TopologyStore, func(), error) {
-	if config.databaseURL == "" {
-		return memory.NewTopologyStore(), func() {}, nil
-	}
-	databaseContext, cancel := context.WithTimeout(ctx, config.databaseTimeout)
-	defer cancel()
-	pool, err := pgxpool.New(databaseContext, config.databaseURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configure PostgreSQL: %w", err)
-	}
-	closePool := func() { pool.Close() }
-	if err := pool.Ping(databaseContext); err != nil {
-		closePool()
-		return nil, nil, fmt.Errorf("connect to PostgreSQL: %w", err)
-	}
-	if err := postgresstore.Migrate(databaseContext, pool); err != nil {
-		closePool()
-		return nil, nil, fmt.Errorf("migrate PostgreSQL: %w", err)
-	}
-	store, err := postgresstore.NewTopologyStore(pool, sourceID, scope)
-	if err != nil {
-		closePool()
-		return nil, nil, fmt.Errorf("configure PostgreSQL topology store: %w", err)
-	}
-	return store, closePool, nil
+	return serverErr
 }
 
 func loadInitialTopology(
