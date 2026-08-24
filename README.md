@@ -103,7 +103,7 @@ application and adapter code that is not intended for external consumers.
 
 ### Prerequisites
 
-- Go 1.26.6, matching the version declared in `go.mod`;
+- Go 1.27.0, matching the version declared in `go.mod`;
 - Git.
 
 A JetStream-enabled NATS server is required for discovery. PostgreSQL is
