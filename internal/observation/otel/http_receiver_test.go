@@ -50,7 +50,7 @@ func TestHTTPHandlerReturnsPartialSuccessForMixedBatch(t *testing.T) {
 	exportRequest := validTraceRequest(normalizerTestObservedAt)
 	valid := spanOf(exportRequest)
 	ignored := cloneSpan(valid)
-	setStringAttribute(ignored.Attributes, attributeMessagingOperation, "process")
+	setStringAttribute(ignored.Attributes, attributeMessagingOperation, "receive")
 	rejectedDestination := cloneSpan(valid)
 	rejectedDestination.Attributes = removeAttribute(rejectedDestination.Attributes, attributeDestinationName)
 	rejectedSystem := cloneSpan(valid)

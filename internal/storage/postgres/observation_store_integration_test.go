@@ -59,6 +59,7 @@ func TestObservationStorePersistsAggregatesAndAtomicallyUpsertsBatches(t *testin
 	base := time.Date(2026, time.August, 24, 10, 0, 0, 0, time.UTC)
 	facts := []observation.Fact{
 		postgresObservationFact(t, sourceID, scope, "checkout", "orders.1", "orders.*", base, map[string]string{"delivery": "first"}),
+		postgresObservationFactWithRelationship(t, sourceID, scope, "worker", "orders.1", "orders.*", topology.EdgeKindConsumes, base, nil),
 		postgresObservationFact(t, sourceID, scope, "checkout", "orders.1", "orders.*", base.Add(-2*time.Hour), map[string]string{"delivery": "late"}),
 		postgresObservationFact(t, sourceID, scope, "checkout", "orders.1", "orders.*", base.Add(2*time.Hour), map[string]string{"delivery": "latest"}),
 		postgresObservationFact(t, sourceID, scope, "boundary", "boundary", "", base, nil),
@@ -78,8 +79,8 @@ func TestObservationStorePersistsAggregatesAndAtomicallyUpsertsBatches(t *testin
 	if err != nil {
 		t.Fatalf("ListActive() error = %v", err)
 	}
-	if len(active) != 3 {
-		t.Fatalf("ListActive() length = %d, want checkout, boundary, and other-source", len(active))
+	if len(active) != 4 {
+		t.Fatalf("ListActive() length = %d, want checkout, worker, boundary, and other-source", len(active))
 	}
 	byService := make(map[string]observation.Aggregate, len(active))
 	for _, aggregate := range active {
@@ -103,6 +104,9 @@ func TestObservationStorePersistsAggregatesAndAtomicallyUpsertsBatches(t *testin
 	}
 	if _, exists := byService["boundary"]; !exists {
 		t.Error("observation exactly at activeSince was excluded")
+	}
+	if worker, exists := byService["worker"]; !exists || worker.Key().RelationshipKind() != topology.EdgeKindConsumes {
+		t.Errorf("worker observation = %#v, want consumes aggregate", worker)
 	}
 	if _, exists := byService["expired"]; exists {
 		t.Error("observation before activeSince was included")
@@ -161,6 +165,20 @@ func postgresObservationFact(
 	observedAt time.Time,
 	metadata map[string]string,
 ) observation.Fact {
+	return postgresObservationFactWithRelationship(t, sourceID, scope, serviceName, physicalName, logicalName, topology.EdgeKindPublishes, observedAt, metadata)
+}
+
+func postgresObservationFactWithRelationship(
+	t *testing.T,
+	sourceID topology.SourceID,
+	scope topology.DiscoveryScope,
+	serviceName string,
+	physicalName string,
+	logicalName string,
+	relationship topology.EdgeKind,
+	observedAt time.Time,
+	metadata map[string]string,
+) observation.Fact {
 	t.Helper()
 	service, err := observation.NewServiceIdentity("integration", "commerce", serviceName)
 	if err != nil {
@@ -174,7 +192,7 @@ func postgresObservationFact(
 		SourceID:         sourceID,
 		Scope:            scope,
 		ObservedAt:       observedAt,
-		RelationshipKind: topology.EdgeKindPublishes,
+		RelationshipKind: relationship,
 		Service:          service,
 		Destination:      destination,
 		Metadata:         metadata,

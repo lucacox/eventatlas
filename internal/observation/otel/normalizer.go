@@ -27,6 +27,7 @@ const (
 	attributeDestinationTemplate   = "messaging.destination.template"
 	unknownServiceName             = "unknown_service"
 	operationTypeSend              = "send"
+	operationTypeProcess           = "process"
 	MetadataEnvironmentSource      = "opentelemetry.environment_source"
 	MetadataInstrumentationName    = "opentelemetry.instrumentation_scope.name"
 	MetadataInstrumentationVersion = "opentelemetry.instrumentation_scope.version"
@@ -253,7 +254,8 @@ func (normalizer *Normalizer) normalizeSpan(
 	case attributeTooLong:
 		return observation.Fact{}, dispositionRejected, RejectionAttributeValueTooLong
 	}
-	if operation != operationTypeSend {
+	relationshipKind, eligible := relationshipKindForOperation(operation)
+	if !eligible {
 		return observation.Fact{}, dispositionIgnored, ""
 	}
 
@@ -315,7 +317,7 @@ func (normalizer *Normalizer) normalizeSpan(
 		SourceID:         normalizer.sourceID,
 		Scope:            normalizer.scope,
 		ObservedAt:       observedAt,
-		RelationshipKind: topology.EdgeKindPublishes,
+		RelationshipKind: relationshipKind,
 		Service:          service,
 		Destination:      destination,
 		Metadata: normalizer.metadata(
@@ -330,6 +332,17 @@ func (normalizer *Normalizer) normalizeSpan(
 	}
 
 	return fact, dispositionAccepted, ""
+}
+
+func relationshipKindForOperation(operation string) (topology.EdgeKind, bool) {
+	switch operation {
+	case operationTypeSend:
+		return topology.EdgeKindPublishes, true
+	case operationTypeProcess:
+		return topology.EdgeKindConsumes, true
+	default:
+		return "", false
+	}
 }
 
 func (normalizer *Normalizer) requiredString(

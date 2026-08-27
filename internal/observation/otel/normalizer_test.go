@@ -99,6 +99,43 @@ func TestNormalizerMapsPublishingSpanToProviderNeutralFact(t *testing.T) {
 	}
 }
 
+func TestNormalizerMapsProcessSpanToConsumesFact(t *testing.T) {
+	t.Parallel()
+
+	normalizer := newTestNormalizer(t)
+	request := validTraceRequest(normalizerTestObservedAt)
+	setStringAttribute(spanOf(request).Attributes, attributeMessagingOperation, operationTypeProcess)
+
+	result, err := normalizer.Normalize(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if result.AcceptedSpans() != 1 || result.IgnoredSpans() != 0 || result.RejectedSpans() != 0 {
+		t.Fatalf("Normalize() counters = accepted:%d ignored:%d rejected:%d, want 1/0/0", result.AcceptedSpans(), result.IgnoredSpans(), result.RejectedSpans())
+	}
+	if got := result.Facts()[0].RelationshipKind(); got != topology.EdgeKindConsumes {
+		t.Errorf("Fact relationship = %q, want %q", got, topology.EdgeKindConsumes)
+	}
+}
+
+func TestNormalizerRejectsInvalidProcessSpan(t *testing.T) {
+	t.Parallel()
+
+	normalizer := newTestNormalizer(t)
+	request := validTraceRequest(normalizerTestObservedAt)
+	span := spanOf(request)
+	setStringAttribute(span.Attributes, attributeMessagingOperation, operationTypeProcess)
+	span.Attributes = removeAttribute(span.Attributes, attributeDestinationName)
+
+	result, err := normalizer.Normalize(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if result.AcceptedSpans() != 0 || result.RejectedSpans() != 1 || result.RejectionReasons()[RejectionDestinationMissing] != 1 {
+		t.Errorf("Normalize() result = accepted:%d rejected:%d reasons:%v, want 0/1 destination_missing", result.AcceptedSpans(), result.RejectedSpans(), result.RejectionReasons())
+	}
+}
+
 func TestNormalizerUsesConfiguredEnvironmentAndStartTimeFallbacks(t *testing.T) {
 	t.Parallel()
 

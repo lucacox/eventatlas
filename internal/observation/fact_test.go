@@ -97,7 +97,7 @@ func TestFactRejectsInvalidInput(t *testing.T) {
 		{name: "source", change: func(params *FactParams) { params.SourceID = topology.SourceID{} }, want: ErrFactSourceIDInvalid},
 		{name: "scope", change: func(params *FactParams) { params.Scope = topology.DiscoveryScope{} }, want: ErrFactScopeInvalid},
 		{name: "time", change: func(params *FactParams) { params.ObservedAt = time.Time{} }, want: ErrFactObservedAtZero},
-		{name: "relationship", change: func(params *FactParams) { params.RelationshipKind = topology.EdgeKindConsumes }, want: ErrFactRelationshipUnsupported},
+		{name: "relationship", change: func(params *FactParams) { params.RelationshipKind = topology.EdgeKindExecutedBy }, want: ErrFactRelationshipUnsupported},
 		{name: "service", change: func(params *FactParams) { params.Service = ServiceIdentity{} }, want: ErrFactServiceIdentityInvalid},
 		{name: "destination", change: func(params *FactParams) { params.Destination = DestinationHint{} }, want: ErrFactDestinationHintInvalid},
 		{name: "metadata key", change: func(params *FactParams) { params.Metadata = map[string]string{" ": "value"} }, want: ErrFactMetadataKeyEmpty},

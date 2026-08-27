@@ -108,6 +108,10 @@ func TestGetTopologyExposesObservedPublisherEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEdge() error = %v", err)
 	}
+	consumes, err := topology.NewEdge(service, destination, topology.EdgeKindConsumes, []topology.Evidence{observedEvidence})
+	if err != nil {
+		t.Fatalf("NewEdge(consumes) error = %v", err)
+	}
 	declaredSource, _ := topology.NewTopologyViewSource(snapshot.SourceID(), topology.EvidenceModeDeclared, snapshot.CapturedAt())
 	observedSource, _ := topology.NewTopologyViewSource(observedSourceID, topology.EvidenceModeObserved, observedAt)
 	view, err := topology.NewTopologyView(topology.TopologyViewParams{
@@ -115,7 +119,7 @@ func TestGetTopologyExposesObservedPublisherEvidence(t *testing.T) {
 		Scope:       snapshot.Scope(),
 		Sources:     []topology.TopologyViewSource{declaredSource, observedSource},
 		Nodes:       append(snapshot.Nodes(), service),
-		Edges:       append(snapshot.Edges(), publishes),
+		Edges:       append(snapshot.Edges(), publishes, consumes),
 	})
 	if err != nil {
 		t.Fatalf("NewTopologyView() error = %v", err)
@@ -136,15 +140,25 @@ func TestGetTopologyExposesObservedPublisherEvidence(t *testing.T) {
 	if len(body.View.Sources) != 2 || body.View.Sources[1].Mode != "observed" {
 		t.Errorf("view sources = %+v, want declared and observed", body.View.Sources)
 	}
+	foundPublishes := false
+	foundConsumes := false
 	for _, edge := range body.Edges {
 		if edge.Kind == "publishes" && edge.SourceID == service.ID().String() && edge.TargetID == destination.ID().String() {
 			if len(edge.Evidence) != 1 || edge.Evidence[0].Mode != "observed" || edge.Evidence[0].SourceSystem != "opentelemetry" {
 				t.Fatalf("publishes evidence = %+v, want observed/opentelemetry", edge.Evidence)
 			}
-			return
+			foundPublishes = true
+		}
+		if edge.Kind == "consumes" && edge.SourceID == service.ID().String() && edge.TargetID == destination.ID().String() {
+			if len(edge.Evidence) != 1 || edge.Evidence[0].Mode != "observed" || edge.Evidence[0].SourceSystem != "opentelemetry" {
+				t.Fatalf("consumes evidence = %+v, want observed/opentelemetry", edge.Evidence)
+			}
+			foundConsumes = true
 		}
 	}
-	t.Fatal("response does not contain observed checkout publishes edge")
+	if !foundPublishes || !foundConsumes {
+		t.Fatalf("response contains publishes=%t consumes=%t; want both observed edges", foundPublishes, foundConsumes)
+	}
 }
 
 func TestGetTopologyReturnsNotFoundBeforeFirstRefresh(t *testing.T) {

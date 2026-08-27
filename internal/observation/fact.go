@@ -125,7 +125,7 @@ func NewFact(params FactParams) (Fact, error) {
 	if params.ObservedAt.IsZero() {
 		return Fact{}, ErrFactObservedAtZero
 	}
-	if params.RelationshipKind != topology.EdgeKindPublishes {
+	if params.RelationshipKind != topology.EdgeKindPublishes && params.RelationshipKind != topology.EdgeKindConsumes {
 		return Fact{}, ErrFactRelationshipUnsupported
 	}
 	if !params.Service.isValid() {
@@ -168,7 +168,7 @@ func (fact Fact) isValid() bool {
 	if fact.sourceID.String() == "" || fact.scope.String() == "" || fact.observedAt.IsZero() {
 		return false
 	}
-	if fact.relationshipKind != topology.EdgeKindPublishes || !fact.service.isValid() || !fact.destination.isValid() {
+	if (fact.relationshipKind != topology.EdgeKindPublishes && fact.relationshipKind != topology.EdgeKindConsumes) || !fact.service.isValid() || !fact.destination.isValid() {
 		return false
 	}
 	for key := range fact.metadata {

@@ -23,6 +23,9 @@ func TestTopologyViewProjectorMergesResolvedObservations(t *testing.T) {
 	orders := topologyViewTestAggregate(t, topologyViewTestFact(
 		t, observationSource, scope, service, "orders.123", "orders.*", now.Add(-3*time.Hour), map[string]string{"delivery": "first"},
 	))
+	consumes := topologyViewTestAggregate(t, topologyViewTestFactWithRelationship(
+		t, observationSource, scope, service, "orders.123", "orders.*", now.Add(-30*time.Minute), topology.EdgeKindConsumes, nil,
+	))
 	orders, _ = orders.Add(topologyViewTestFact(
 		t, observationSource, scope, service, "orders.123", "orders.*", now.Add(-time.Hour), map[string]string{"delivery": "latest"},
 	))
@@ -39,7 +42,7 @@ func TestTopologyViewProjectorMergesResolvedObservations(t *testing.T) {
 		t, observationSource, scope, topologyViewTestServiceIdentity(t, "ambiguous"), "unique.one", "shared.*", now.Add(-15*time.Minute), nil,
 	))
 	store := &topologyViewObservationStoreStub{
-		aggregates: []observation.Aggregate{unresolved, billing, ordersPhysical, ambiguous, orders},
+		aggregates: []observation.Aggregate{unresolved, billing, ordersPhysical, ambiguous, orders, consumes},
 	}
 	projector, err := NewTopologyViewProjector(store, TopologyViewProjectorConfig{
 		Retention: DefaultObservationRetention,
@@ -111,6 +114,13 @@ func TestTopologyViewProjectorMergesResolvedObservations(t *testing.T) {
 	}
 	if len(publishes) != 2 {
 		t.Fatalf("projected publishes edges = %d, want orders and billing", len(publishes))
+	}
+	if !viewHasEdge(view, projectedService.ID(), destinationsByName["orders.*"].ID(), topology.EdgeKindConsumes) {
+		t.Fatal("projected view does not contain observed consumes edge")
+	}
+	consumesEdge := viewEdge(view, projectedService.ID(), destinationsByName["orders.*"].ID(), topology.EdgeKindConsumes)
+	if len(consumesEdge.Evidence()) != 1 || consumesEdge.Evidence()[0].Mode() != topology.EvidenceModeObserved {
+		t.Fatalf("consumes evidence = %+v, want one observed record", consumesEdge.Evidence())
 	}
 	ordersEvidence := publishes["orders.*"].Evidence()
 	if len(ordersEvidence) != 1 {
@@ -274,13 +284,27 @@ func topologyViewTestFact(
 	observedAt time.Time,
 	metadata map[string]string,
 ) observation.Fact {
+	return topologyViewTestFactWithRelationship(t, sourceID, scope, service, physicalName, logicalName, observedAt, topology.EdgeKindPublishes, metadata)
+}
+
+func topologyViewTestFactWithRelationship(
+	t *testing.T,
+	sourceID topology.SourceID,
+	scope topology.DiscoveryScope,
+	service observation.ServiceIdentity,
+	physicalName string,
+	logicalName string,
+	observedAt time.Time,
+	relationship topology.EdgeKind,
+	metadata map[string]string,
+) observation.Fact {
 	t.Helper()
 	destination, _ := observation.NewDestinationHint("nats", physicalName, logicalName)
 	fact, err := observation.NewFact(observation.FactParams{
 		SourceID:         sourceID,
 		Scope:            scope,
 		ObservedAt:       observedAt,
-		RelationshipKind: topology.EdgeKindPublishes,
+		RelationshipKind: relationship,
 		Service:          service,
 		Destination:      destination,
 		Metadata:         metadata,
@@ -289,6 +313,19 @@ func topologyViewTestFact(
 		t.Fatalf("NewFact() error = %v", err)
 	}
 	return fact
+}
+
+func viewHasEdge(view *topology.TopologyView, sourceID, targetID topology.NodeID, kind topology.EdgeKind) bool {
+	return viewEdge(view, sourceID, targetID, kind) != nil
+}
+
+func viewEdge(view *topology.TopologyView, sourceID, targetID topology.NodeID, kind topology.EdgeKind) *topology.Edge {
+	for _, edge := range view.Edges() {
+		if edge.SourceID() == sourceID && edge.TargetID() == targetID && edge.Kind() == kind {
+			return &edge
+		}
+	}
+	return nil
 }
 
 func topologyViewTestAggregate(t *testing.T, fact observation.Fact) observation.Aggregate {

@@ -163,9 +163,11 @@ persisted snapshot when the initial NATS discovery attempt fails.
 
 When `EVENTATLAS_OTLP_HTTP_ADDRESS` is set, EventAtlas starts a separate
 OTLP/HTTP listener that accepts binary Protobuf trace requests, with optional
-gzip compression, on `POST /v1/traces`. The first observation slice recognizes
-NATS messaging `send` spans. The configured byte limit applies to both the
-on-wire request and its decompressed representation.
+gzip compression, on `POST /v1/traces`. The observation slice recognizes NATS
+messaging `send` and `process` spans. Send spans produce observed `publishes`
+relationships and process spans produce observed `consumes` relationships. The
+configured byte limit applies to both the on-wire request and its decompressed
+representation.
 
 The topology API projects the latest declared snapshot together with active
 observations on every read. An observation remains active for
