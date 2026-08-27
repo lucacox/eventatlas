@@ -50,3 +50,21 @@ jobs:
 
       - name: Run PostgreSQL integration suite
         run: make test-integration-postgres
+
+  e2e:
+    name: OTLP to topology end-to-end integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run OTLP to topology integration scenario
+        run: make test-integration-e2e

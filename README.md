@@ -197,6 +197,13 @@ persisted-startup fallback tests:
 make test-integration-postgres
 ```
 
+Run the end-to-end OTLP-to-topology scenario with isolated NATS and PostgreSQL
+containers:
+
+```bash
+make test-integration-e2e
+```
+
 Run both integration suites:
 
 ```bash

@@ -337,8 +337,9 @@ func TestNormalizerHonorsContextAndRejectsNilInputs(t *testing.T) {
 
 	normalizer := newTestNormalizer(t)
 	request := validTraceRequest(normalizerTestObservedAt)
+	var nilContext context.Context
 
-	if _, err := normalizer.Normalize(nil, request); !errors.Is(err, ErrContextNil) {
+	if _, err := normalizer.Normalize(nilContext, request); !errors.Is(err, ErrContextNil) {
 		t.Errorf("Normalize(nil context) error = %v, want %v", err, ErrContextNil)
 	}
 	if _, err := normalizer.Normalize(context.Background(), nil); !errors.Is(err, ErrRequestNil) {
